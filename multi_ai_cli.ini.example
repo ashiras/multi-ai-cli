@@ -1,1 +1,11 @@
+[API_KEYS]
+GEMINI_API_KEY = 
+OPENAI_API_KEY = 
 
+[MODELS]
+gemini_model = gemini-2.5-flash
+gpt_model = gpt-4o-mini
+
+[Paths]
+work_efficient = prompts
+work_data = data
