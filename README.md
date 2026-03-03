@@ -19,7 +19,7 @@ Built on the philosophy of Redundancy and Cross-checking rather than rigid roles
 
 To use `multi-ai` from any directory, follow these steps:
 
-1. **Download the binary** from the [Latest Release](https://github.com/YOUR_USERNAME/YOUR_REPO/releases).
+1. **Download the binary** from the [Latest Release](https://github.com/ashiras/multi-ai-cli/releases).
 2. **Add execution permission**:
 ```bash
 chmod +x multi-ai
