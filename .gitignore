@@ -1,0 +1,5 @@
+multi_ai_cli.ini
+build/
+dist/
+multi-ai.spec
+__pycache__/
