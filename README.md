@@ -15,6 +15,26 @@ Built on the philosophy of Redundancy and Cross-checking rather than rigid roles
 - 🧹 Memory Control (@scrub): Flush the context window of a specific AI (or both) when the conversation gets muddy, without restarting the CLI.
 - 📁 Clean Workspace: Strictly separates configuration files from your working data, keeping your project root pristine.
 
+## 🍎 Installation (macOS / Linux)
+
+To use `multi-ai` from any directory, follow these steps:
+
+1. **Download the binary** from the [Latest Release](https://github.com/YOUR_USERNAME/YOUR_REPO/releases).
+2. **Add execution permission**:
+```bash
+chmod +x multi-ai
+```
+3. Move to your local bin directory:
+```bash
+sudo mv multi-ai /usr/local/bin/
+```
+4. Verify installation:
+Open a new terminal and type
+```bash
+multi-ai
+```
+Note: On macOS, if you see a "developer cannot be verified" warning, go to System Settings > Privacy & Security and click "Allow Anyway".
+   
 ## 🛠 Setup
 1. Configuration File (Required)
 Place a multi_ai_cli.ini file in your working directory. The CLI will not launch without it, ensuring your API keys and settings are intentionally scoped per project.
