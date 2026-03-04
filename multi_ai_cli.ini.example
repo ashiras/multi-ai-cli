@@ -1,11 +1,23 @@
 [API_KEYS]
 GEMINI_API_KEY = 
 OPENAI_API_KEY = 
+anthropic_api_key = 
+grok_api_key = 
 
 [MODELS]
 gemini_model = gemini-2.5-flash
 gpt_model = gpt-4o-mini
+claude_model = claude-opus-4-6
+grok_model = grok-4-latest
 
 [Paths]
 work_efficient = prompts
 work_data = data
+
+[logging]
+enabled = true
+log_dir = logs
+base_filename = chat.log
+max_bytes = 10485760
+backup_count = 5
+log_level = INFO
