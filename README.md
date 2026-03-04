@@ -55,16 +55,16 @@ Place this file in your working directory to define models and paths.
 ```ini
 [API_KEYS]
 # Leave empty if using environment variables
-gemini_api_key = 
-openai_api_key = 
-anthropic_api_key = 
-grok_api_key = 
+gemini_api_key = ...
+openai_api_key = ...
+anthropic_api_key = ...
+grok_api_key = ...
 
 [MODELS]
-gemini_model = gemini-1.5-flash
+gemini_model = gemini-2.5-flash
 gpt_model = gpt-4o-mini
-claude_model = claude-3-5-sonnet-20241022
-grok_model = grok-beta
+claude_model = claude-opus-4-6
+grok_model = grok-4-latest
 max_history_turns = 30
 
 [logging]
