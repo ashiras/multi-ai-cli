@@ -14,9 +14,9 @@ VERSION = "0.4.1"
 # --------------------------------------------------
 # 1. Argparse & Config Management
 # --------------------------------------------------
-parser = argparse.ArgumentParser(description="Multi-AI CLI (Quad Engine Edition)")
+parser = argparse.ArgumentParser(description=f"Multi-AI CLI v{VERSION} (Quad Engine Edition)")
 parser.add_argument("--no-log", action="store_true", help="Disable logging for this session (Stealth Mode)")
-parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+parser.add_argument("--version", action="version", version=f"Multi-AI CLI v{VERSION}")
 args = parser.parse_args()
 
 INI_FILE = "multi_ai_cli.ini"
@@ -35,7 +35,7 @@ config.read(INI_FILE, encoding='utf-8')
 should_log = config.getboolean("logging", "enabled", fallback=True) and not args.no_log
 
 logger = logging.getLogger("MultiAI")
-logger.setLevel(logging.DEBUG) # ベースレベル。ハンドラ側でフィルタする
+logger.setLevel(logging.DEBUG)
 
 if should_log:
     log_dir = config.get("logging", "log_dir", fallback="logs")
@@ -54,7 +54,6 @@ if should_log:
     handler = RotatingFileHandler(log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8")
     handler.setLevel(log_level)
     
-    # フォーマット: [HH:MM:SS] メッセージ本文
     formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
     handler.setFormatter(formatter)
     
@@ -206,7 +205,7 @@ while True:
         parts = user_input.split()
         cmd = parts[0].lower()
 
-        # Command: @scrub (Memory Reset)
+        # Command: @scrub
         if cmd in ["@scrub", "@flush"]:
             target = parts[1].lower() if len(parts) > 1 else "all"
             if target in ["all", "gemini"]:
@@ -227,7 +226,7 @@ while True:
                 logger.info("[*] System: Grok memory scrubbed.")
             continue
 
-        # Command: @efficient (System Prompt Injection)
+        # Command: @efficient
         if cmd == "@efficient":
             if len(parts) < 2:
                 print("[!] Usage: @efficient [gemini/gpt/claude/grok/all] filename.txt")
@@ -291,24 +290,20 @@ while True:
                     logger.error(f"[!] Read Error: {e}")
                     continue
 
-            # --- HUD LOGGING (User) ---
             logger.info(f"@User ({ai_name_clean}): {prompt_main}")
-
-            # Thinking Message
             print(f"[*] {ai_name_clean} is thinking...", end="\r", flush=True)
+            logger.info(f"[*] {ai_name_clean} is thinking...")
 
-            # Call specific AI
             if target_ai == "@gemini": result = call_gemini(prompt_main)
             elif target_ai == "@gpt": result = call_gpt(prompt_main)
             elif target_ai == "@claude": result = call_claude(prompt_main)
             elif target_ai == "@grok": result = call_grok(prompt_main)
 
-            print(" " * 50, end="\r", flush=True) # Clear line
+            print(" " * 50, end="\r", flush=True)
 
-            # --- HUD LOGGING (AI Response) ---
             logger.info(f"@{ai_name_clean}: {result}")
+            logger.info("-" * 40)
 
-            # Output Formatting
             final_result = result
             code_block_marker = chr(96) * 3
             if output_file and code_block_marker in result:
@@ -334,3 +329,4 @@ while True:
     except Exception as e:
         print(f"[!] Error: {e}")
         logger.error(f"[!] Main Loop Error: {e}")
+        
