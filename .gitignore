@@ -3,3 +3,4 @@ build/
 dist/
 multi-ai.spec
 __pycache__/
+.DS_Store
