@@ -3,18 +3,29 @@ import sys
 import argparse
 import configparser
 import logging
+import shutil
 from logging.handlers import RotatingFileHandler
+from abc import ABC, abstractmethod
+
+# AI SDKs
 import google.generativeai as genai
 from openai import OpenAI
 from anthropic import Anthropic
 
-# Version Information
-VERSION = "0.4.1"
+# ==================================================
+# Constants & Configuration
+# ==================================================
+VERSION = "0.5.4"
+DEFAULT_LOG_MAX_BYTES = 10485760
+DEFAULT_LOG_BACKUP_COUNT = 5
+DEFAULT_MAX_HISTORY_TURNS = 30
 
 # --------------------------------------------------
 # 1. Argparse & Config Management
 # --------------------------------------------------
-parser = argparse.ArgumentParser(description=f"Multi-AI CLI v{VERSION} (Quad Engine Edition)")
+parser = argparse.ArgumentParser(
+    description=f"Multi-AI CLI v{VERSION} (Security & Robustness Update)"
+)
 parser.add_argument("--no-log", action="store_true", help="Disable logging for this session (Stealth Mode)")
 parser.add_argument("--version", action="version", version=f"Multi-AI CLI v{VERSION}")
 args = parser.parse_args()
@@ -23,173 +34,253 @@ INI_FILE = "multi_ai_cli.ini"
 
 if not os.path.exists(INI_FILE):
     print(f"[!] Error: '{INI_FILE}' not found in the current directory.")
-    print("    Please place the configuration file in your working directory.")
     sys.exit(1)
 
 config = configparser.ConfigParser()
-config.read(INI_FILE, encoding='utf-8')
+config.read(INI_FILE, encoding='utf-8-sig')
 
 # --------------------------------------------------
-# 2. Logging System Setup
+# 2. Logging & Utility
 # --------------------------------------------------
-should_log = config.getboolean("logging", "enabled", fallback=True) and not args.no_log
+class AIError(Exception):
+    """Custom exception for AI service and processing errors."""
+    pass
 
-logger = logging.getLogger("MultiAI")
-logger.setLevel(logging.DEBUG)
+def setup_logger():
+    """
+    Initializes the logging system based on INI settings and CLI flags.
+    Returns a tuple of (logger_instance, is_enabled_boolean).
+    """
+    should_log = config.getboolean("logging", "enabled", fallback=True) and not args.no_log
+    _logger = logging.getLogger("MultiAI")
+    _logger.setLevel(logging.DEBUG)
 
-if should_log:
-    log_dir = config.get("logging", "log_dir", fallback="logs")
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    # 同一プロセスでの複数回呼び出し時にハンドラが重複するのを防ぐ (v0.5.4 fix)
+    if _logger.handlers:
+        _logger.handlers.clear()
+
+    if should_log:
+        log_dir = config.get("logging", "log_dir", fallback="logs")
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except OSError as e:
+            print(f"[!] Logging Error: Could not create log directory '{log_dir}': {e}")
+            sys.exit(1)
+            
+        base_filename = config.get("logging", "base_filename", fallback="chat.log")
+        log_path = os.path.join(log_dir, base_filename)
         
-    base_filename = config.get("logging", "base_filename", fallback="chat.log")
-    log_path = os.path.join(log_dir, base_filename)
-    
-    max_bytes = config.getint("logging", "max_bytes", fallback=10485760)
-    backup_count = config.getint("logging", "backup_count", fallback=5)
-    
-    log_level_str = config.get("logging", "log_level", fallback="INFO").upper()
-    log_level = getattr(logging, log_level_str, logging.INFO)
+        max_bytes = config.getint("logging", "max_bytes", fallback=DEFAULT_LOG_MAX_BYTES)
+        backup_count = config.getint("logging", "backup_count", fallback=DEFAULT_LOG_BACKUP_COUNT)
+        
+        log_level_str = config.get("logging", "log_level", fallback="INFO").upper()
+        log_level = getattr(logging, log_level_str, logging.INFO)
 
-    handler = RotatingFileHandler(log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8")
-    handler.setLevel(log_level)
+        handler = RotatingFileHandler(log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8")
+        handler.setLevel(log_level)
+        
+        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+        handler.setFormatter(formatter)
+        _logger.addHandler(handler)
+    else:
+        _logger.addHandler(logging.NullHandler())
+    return _logger, should_log
+
+logger, is_log_enabled = setup_logger()
+
+def secure_resolve_path(filename, category="data"):
+    """
+    Resolves a file path while preventing directory traversal attacks.
+    Ensures the target file stays within the configured base directory.
+    """
+    section_map = {"efficient": "work_efficient", "data": "work_data"}
+    default_map = {"efficient": "prompts", "data": "work_data"}
     
-    formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
-    handler.setFormatter(formatter)
+    config_key = section_map.get(category, "work_data")
+    default_dir = default_map.get(category, "work_data")
     
-    logger.addHandler(handler)
-else:
-    logger.addHandler(logging.NullHandler())
+    base_dir = config.get("Paths", config_key, fallback=default_dir)
+    
+    abs_base = os.path.abspath(base_dir)
+    target_path = os.path.abspath(os.path.join(abs_base, filename))
+    
+    if not os.path.commonpath([abs_base, target_path]) == abs_base:
+        raise PermissionError(f"Security Alert: Directory traversal blocked for '{filename}'")
+    
+    return target_path
 
 # --------------------------------------------------
-# 3. API Clients Initialization
+# 3. AI Engine Abstraction
+# --------------------------------------------------
+class AIEngine(ABC):
+    """Base class for all AI model implementations."""
+    def __init__(self, name, model_name):
+        self.name = name
+        self.model_name = model_name
+        self.system_prompt = ""
+        self.history = []
+        self.max_turns = config.getint("MODELS", "max_history_turns", fallback=DEFAULT_MAX_HISTORY_TURNS)
+
+    def _trim_history(self):
+        """Keeps the conversation history within the turn limit to prevent context overflow."""
+        max_msgs = self.max_turns * 2
+        if len(self.history) > max_msgs:
+            self.history = self.history[-max_msgs:]
+
+    @abstractmethod
+    def call(self, prompt):
+        """Sends a prompt to the AI and returns the response string."""
+        pass
+
+    def scrub(self):
+        """Clears the short-term memory (history) but keeps the persona."""
+        self.history = []
+        logger.info(f"[*] System: {self.name} history cleared.")
+
+    def load_persona(self, prompt_text, filename):
+        """Sets the system prompt and resets the history."""
+        self.system_prompt = prompt_text
+        self.history = []
+        logger.info(f"[*] System: {self.name} persona loaded from '{filename}'.")
+
+class GeminiEngine(AIEngine):
+    """Google Gemini specific implementation."""
+    def __init__(self, name, model_name):
+        super().__init__(name, model_name)
+        self.rebuild_model()
+
+    def rebuild_model(self):
+        instr = self.system_prompt if self.system_prompt else None
+        self.model = genai.GenerativeModel(self.model_name, system_instruction=instr)
+        self.chat = self.model.start_chat(history=[])
+
+    def load_persona(self, prompt_text, filename):
+        super().load_persona(prompt_text, filename)
+        self.rebuild_model()
+
+    def scrub(self):
+        super().scrub()
+        self.chat = self.model.start_chat(history=[])
+
+    def call(self, prompt):
+        try:
+            response = self.chat.send_message(prompt)
+            logger.debug(f"[DEBUG] Gemini response received. Char count: {len(response.text)}")
+            return response.text
+        except Exception as e:
+            logger.error(f"Gemini Error: {e}")
+            raise AIError(f"Gemini error: {e}")
+
+class OpenAIEngine(AIEngine):
+    """OpenAI-compatible implementation (GPT, Grok)."""
+    def __init__(self, name, model_name, client):
+        super().__init__(name, model_name)
+        self.client = client
+
+    def call(self, prompt):
+        self._trim_history()
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.extend(self.history)
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            response = self.client.chat.completions.create(model=self.model_name, messages=messages)
+            answer = response.choices[0].message.content
+            logger.debug(f"[DEBUG] {self.name} response received. Char count: {len(answer)}")
+            
+            self.history.append({"role": "user", "content": prompt})
+            self.history.append({"role": "assistant", "content": answer})
+            # 追加後にもトリミングを行い、次回のリクエスト前に上限を超過させない (v0.5.4 fix)
+            self._trim_history()
+            return answer
+        except Exception as e:
+            logger.error(f"{self.name} API Error: {e}")
+            raise AIError(f"{self.name} error: {e}")
+
+class ClaudeEngine(AIEngine):
+    """Anthropic Claude specific implementation."""
+    def __init__(self, name, model_name, client):
+        super().__init__(name, model_name)
+        self.client = client
+        self.max_tokens = config.getint("MODELS", "claude_max_tokens", fallback=8192)
+
+    def call(self, prompt):
+        self._trim_history()
+        try:
+            response = self.client.messages.create(
+                model=self.model_name,
+                max_tokens=self.max_tokens,
+                system=self.system_prompt if self.system_prompt else "",
+                messages=self.history + [{"role": "user", "content": prompt}]
+            )
+            answer = response.content[0].text
+            logger.debug(f"[DEBUG] Claude response received. Char count: {len(answer)}")
+            
+            self.history.append({"role": "user", "content": prompt})
+            self.history.append({"role": "assistant", "content": answer})
+            # 追加後にもトリミングを行い、次回のリクエスト前に上限を超過させない (v0.5.4 fix)
+            self._trim_history()
+            return answer
+        except Exception as e:
+            logger.error(f"Claude API Error: {e}")
+            raise AIError(f"Claude error: {e}")
+
+# --------------------------------------------------
+# 4. Global Initialization
 # --------------------------------------------------
 try:
-    genai.configure(api_key=config.get("API_KEYS", "gemini_api_key"))
-    client_gpt = OpenAI(api_key=config.get("API_KEYS", "openai_api_key"))
-    client_claude = Anthropic(api_key=config.get("API_KEYS", "anthropic_api_key"))
+    def get_api_key(opt, env_var):
+        """Fetches API key from env var or INI file. Env var takes priority."""
+        val = os.getenv(env_var) or config.get("API_KEYS", opt, fallback="").strip()
+        if not val:
+            raise ValueError(f"API key '{opt}' is missing in {INI_FILE} and environment variable '{env_var}' is not set.")
+        return val
+
+    # Initialize Clients with Environment Variable support
+    genai.configure(api_key=get_api_key("gemini_api_key", "GEMINI_API_KEY"))
+    client_gpt = OpenAI(api_key=get_api_key("openai_api_key", "OPENAI_API_KEY"))
+    client_claude = Anthropic(api_key=get_api_key("anthropic_api_key", "ANTHROPIC_API_KEY"))
     client_grok = OpenAI(
-        api_key=config.get("API_KEYS", "grok_api_key"),
+        api_key=get_api_key("grok_api_key", "GROK_API_KEY"), 
         base_url="https://api.x.ai/v1"
     )
 
-    gemini_model_name = config.get("MODELS", "gemini_model", fallback="gemini-2.5-flash")
-    gpt_model_name = config.get("MODELS", "gpt_model", fallback="gpt-4o-mini")
-    claude_model_name = config.get("MODELS", "claude_model", fallback="claude-3-5-sonnet-20241022")
-    grok_model_name = config.get("MODELS", "grok_model", fallback="grok-4-latest")
+    engines = {
+        "gemini": GeminiEngine("Gemini", config.get("MODELS", "gemini_model", fallback="gemini-2.5-flash")),
+        "gpt":    OpenAIEngine("GPT",    config.get("MODELS", "gpt_model", fallback="gpt-4o-mini"), client_gpt),
+        "claude": ClaudeEngine("Claude", config.get("MODELS", "claude_model", fallback="claude-3-5-sonnet-20241022"), client_claude),
+        "grok":   OpenAIEngine("Grok",   config.get("MODELS", "grok_model", fallback="grok-4-latest"), client_grok),
+    }
+
+    # Prepare Directories
+    for d_opt in ["work_efficient", "work_data"]:
+        d_default = "prompts" if "efficient" in d_opt else "work_data"
+        d_path = config.get("Paths", d_opt, fallback=d_default)
+        os.makedirs(d_path, exist_ok=True)
+
 except Exception as e:
-    print(f"[!] Config Error: {e}")
+    print(f"[!] Startup Error: {e}")
     sys.exit(1)
 
-# Paths
-efficient_dir = config.get("Paths", "work_efficient", fallback="prompts")
-data_dir = config.get("Paths", "work_data", fallback="work_data")
-
-for d in [efficient_dir, data_dir]:
-    if not os.path.exists(d):
-        os.makedirs(d)
-
-def resolve_path(filename, category="data"):
-    base = efficient_dir if category == "efficient" else data_dir
-    return os.path.join(base, filename)
-
 # --------------------------------------------------
-# 4. AI Model Interface & History
-# --------------------------------------------------
-gemini_model = genai.GenerativeModel(gemini_model_name)
-gemini_chat = gemini_model.start_chat(history=[])
-
-gpt_system_prompt = ""
-gpt_history = []
-
-claude_system_prompt = ""
-claude_history = []
-
-grok_system_prompt = ""
-grok_history = []
-
-def call_gemini(prompt):
-    try:
-        response = gemini_chat.send_message(prompt)
-        logger.debug(f"[DEBUG] Gemini Raw Response: {response}")
-        return response.text
-    except Exception as e:
-        logger.error(f"Gemini Error: {e}")
-        return f"Gemini Error: {e}"
-
-def call_gpt(prompt):
-    global gpt_history
-    messages = []
-    if gpt_system_prompt:
-        messages.append({"role": "system", "content": gpt_system_prompt})
-    messages.extend(gpt_history)
-    messages.append({"role": "user", "content": prompt})
-    try:
-        response = client_gpt.chat.completions.create(model=gpt_model_name, messages=messages)
-        logger.debug(f"[DEBUG] GPT Raw Response: {response}")
-        answer = response.choices[0].message.content
-        gpt_history.append({"role": "user", "content": prompt})
-        gpt_history.append({"role": "assistant", "content": answer})
-        return answer
-    except Exception as e:
-        logger.error(f"GPT Error: {e}")
-        return f"GPT Error: {e}"
-
-def call_claude(prompt):
-    global claude_history
-    try:
-        messages = list(claude_history)
-        messages.append({"role": "user", "content": prompt})
-        
-        response = client_claude.messages.create(
-            model=claude_model_name,
-            max_tokens=8192,
-            system=claude_system_prompt if claude_system_prompt else "",
-            messages=messages
-        )
-        logger.debug(f"[DEBUG] Claude Raw Response: {response}")
-        answer = response.content[0].text
-        claude_history.append({"role": "user", "content": prompt})
-        claude_history.append({"role": "assistant", "content": answer})
-        return answer
-    except Exception as e:
-        logger.error(f"Claude Error: {e}")
-        return f"Claude Error: {e}"
-
-def call_grok(prompt):
-    global grok_history
-    messages = []
-    if grok_system_prompt:
-        messages.append({"role": "system", "content": grok_system_prompt})
-    messages.extend(grok_history)
-    messages.append({"role": "user", "content": prompt})
-    try:
-        response = client_grok.chat.completions.create(model=grok_model_name, messages=messages)
-        logger.debug(f"[DEBUG] Grok Raw Response: {response}")
-        answer = response.choices[0].message.content
-        grok_history.append({"role": "user", "content": prompt})
-        grok_history.append({"role": "assistant", "content": answer})
-        return answer
-    except Exception as e:
-        logger.error(f"Grok Error: {e}")
-        return f"Grok Error: {e}"
-
-# --------------------------------------------------
-# 5. Main UI & Loop
+# 5. Main Loop & UI
 # --------------------------------------------------
 def print_welcome_banner():
     print(f"==================================================")
-    print(f"  Multi-AI CLI v{VERSION} (Quad Engine + HUD Edition)")
-    print(f"  Gemini: {gemini_model_name}")
-    print(f"  GPT   : {gpt_model_name}")
-    print(f"  Claude: {claude_model_name}")
-    print(f"  Grok  : {grok_model_name}")
+    print(f"  Multi-AI CLI v{VERSION} (Security Enhanced)")
+    for name, eng in engines.items():
+        print(f"  {eng.name:<6}: {eng.model_name}")
     print(f"==================================================")
-    print(f"[*] Paths: Efficient='{efficient_dir}', Data='{data_dir}'")
-    print(f"[*] Commands: @gemini, @gpt, @claude, @grok, @efficient, @scrub, exit")
-    log_status = "Disabled (Stealth Mode)" if not should_log else f"Enabled (tail -f logs/chat.log)"
+    log_status = "Disabled (Stealth)" if not is_log_enabled else f"Enabled (tail -f logs/chat.log)"
     print(f"[*] Logging: {log_status}")
-    print(f"==================================================\n")
+    print(f"[*] Commands: @model, @efficient, @scrub, exit\n")
+
+def clear_thinking_line():
+    """Clears the 'thinking' status line in the terminal."""
+    cols = shutil.get_terminal_size().columns
+    print(" " * (cols - 1), end="\r", flush=True)
 
 print_welcome_banner()
 
@@ -198,7 +289,6 @@ while True:
         user_input = input("% ").strip()
         if not user_input: continue
         if user_input.lower() in ["exit", "quit"]:
-            print(f"\n[*] Shutting down the Quad Engine v{VERSION}... Goodbye!")
             logger.info("--- Session Ended ---")
             break
 
@@ -208,125 +298,106 @@ while True:
         # Command: @scrub
         if cmd in ["@scrub", "@flush"]:
             target = parts[1].lower() if len(parts) > 1 else "all"
-            if target in ["all", "gemini"]:
-                gemini_chat = gemini_model.start_chat(history=[])
-                print("[*] Gemini memory scrubbed.")
-                logger.info("[*] System: Gemini memory scrubbed.")
-            if target in ["all", "gpt"]:
-                gpt_history = [{"role": "system", "content": gpt_system_prompt}] if gpt_system_prompt else []
-                print("[*] GPT memory scrubbed.")
-                logger.info("[*] System: GPT memory scrubbed.")
-            if target in ["all", "claude"]:
-                claude_history = []
-                print("[*] Claude memory scrubbed.")
-                logger.info("[*] System: Claude memory scrubbed.")
-            if target in ["all", "grok"]:
-                grok_history = [{"role": "system", "content": grok_system_prompt}] if grok_system_prompt else []
-                print("[*] Grok memory scrubbed.")
-                logger.info("[*] System: Grok memory scrubbed.")
+            valid_targets = set(engines.keys()) | {"all"}
+            if target not in valid_targets:
+                print(f"[!] Invalid target '{target}'. Valid: {', '.join(valid_targets)}")
+                continue
+                
+            for name, engine in engines.items():
+                if target in ["all", name]:
+                    engine.scrub()
+                    print(f"[*] {engine.name} memory scrubbed.")
             continue
 
         # Command: @efficient
         if cmd == "@efficient":
             if len(parts) < 2:
-                print("[!] Usage: @efficient [gemini/gpt/claude/grok/all] filename.txt")
+                print("[!] Usage: @efficient [target/all] <filename.txt>")
                 continue
             
-            target = parts[1].lower() if parts[1].lower() in ["gemini", "gpt", "claude", "grok"] else "all"
-            filename = parts[2] if target != "all" else parts[1]
+            if parts[1].lower() in (list(engines.keys()) + ["all"]):
+                target = parts[1].lower()
+                filename = parts[2] if len(parts) > 2 else None
+            else:
+                target = "all"
+                filename = parts[1]
+
+            if not filename:
+                print("[!] Error: Persona filename is required.")
+                continue
 
             try:
-                with open(resolve_path(filename, "efficient"), "r", encoding="utf-8") as f:
-                    prompt_text = f.read()
-                
-                if target in ["all", "gemini"]:
-                    gemini_model = genai.GenerativeModel(gemini_model_name, system_instruction=prompt_text)
-                    gemini_chat = gemini_model.start_chat(history=[])
-                    print(f"[*] Gemini persona loaded: '{filename}'.")
-                    logger.info(f"[*] System: Gemini persona loaded from '{filename}'.")
-                if target in ["all", "gpt"]:
-                    gpt_system_prompt = prompt_text
-                    gpt_history = [{"role": "system", "content": gpt_system_prompt}]
-                    print(f"[*] GPT persona loaded: '{filename}'.")
-                    logger.info(f"[*] System: GPT persona loaded from '{filename}'.")
-                if target in ["all", "claude"]:
-                    claude_system_prompt = prompt_text
-                    claude_history = []
-                    print(f"[*] Claude persona loaded: '{filename}'.")
-                    logger.info(f"[*] System: Claude persona loaded from '{filename}'.")
-                if target in ["all", "grok"]:
-                    grok_system_prompt = prompt_text
-                    grok_history = [{"role": "system", "content": grok_system_prompt}]
-                    print(f"[*] Grok persona loaded: '{filename}'.")
-                    logger.info(f"[*] System: Grok persona loaded from '{filename}'.")
+                with open(secure_resolve_path(filename, "efficient"), "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                for name, engine in engines.items():
+                    if target in ["all", name]:
+                        engine.load_persona(content, filename)
+                        print(f"[*] {engine.name} persona loaded: '{filename}'.")
             except Exception as e:
-                print(f"[!] File Error: {e}")
-                logger.error(f"[!] File Error parsing persona: {e}")
+                print(f"[!] Persona loading failed: {e}")
             continue
 
         # Command: AI Interactions
-        if cmd in ["@gemini", "@gpt", "@claude", "@grok"]:
-            target_ai = cmd
-            ai_name_clean = target_ai.upper().replace('@', '')
-            input_file = None
-            output_file = None
-            
-            if "read" in parts:
-                idx = parts.index("read")
-                if idx + 1 < len(parts): input_file = parts[idx + 1]
-            if "write" in parts:
-                idx = parts.index("write")
-                if idx + 1 < len(parts): output_file = parts[idx + 1]
+        target_key = cmd.replace('@', '')
+        if target_key in engines:
+            engine = engines[target_key]
+            input_file, output_file = None, None
+            indices_to_remove = {0}
 
-            prompt_main = " ".join([p for p in parts[1:] if p not in ["read", "write", input_file, output_file]])
+            for flag, short in [("--read", "-r"), ("--write", "-w")]:
+                kw = flag if flag in parts else (short if short in parts else None)
+                if kw:
+                    idx = parts.index(kw)
+                    if idx + 1 < len(parts):
+                        if flag == "--read": input_file = parts[idx + 1]
+                        else: output_file = parts[idx + 1]
+                        indices_to_remove.update({idx, idx + 1})
+
+            prompt_main = " ".join([parts[i] for i in range(len(parts)) if i not in indices_to_remove])
 
             if input_file:
                 try:
-                    with open(resolve_path(input_file, "data"), "r", encoding="utf-8") as f:
-                        file_content = f.read()
-                        prompt_main += "\n\n[Attached File Content]:\n" + file_content
+                    with open(secure_resolve_path(input_file, "data"), "r", encoding="utf-8") as f:
+                        prompt_main += f"\n\n[Attached File]:\n{f.read()}"
                 except Exception as e:
-                    print(f"[!] Read Error: {e}")
-                    logger.error(f"[!] Read Error: {e}")
+                    print(f"[!] Error reading input file: {e}")
                     continue
 
-            logger.info(f"@User ({ai_name_clean}): {prompt_main}")
-            print(f"[*] {ai_name_clean} is thinking...", end="\r", flush=True)
-            logger.info(f"[*] {ai_name_clean} is thinking...")
+            logger.info(f"@User ({engine.name}): {prompt_main}")
+            print(f"[*] {engine.name} is thinking...", end="\r", flush=True)
+            logger.info(f"[*] {engine.name} is thinking...")
 
-            if target_ai == "@gemini": result = call_gemini(prompt_main)
-            elif target_ai == "@gpt": result = call_gpt(prompt_main)
-            elif target_ai == "@claude": result = call_claude(prompt_main)
-            elif target_ai == "@grok": result = call_grok(prompt_main)
+            try:
+                result = engine.call(prompt_main)
+                clear_thinking_line()
+                logger.info(f"@{engine.name}: {result}")
+                logger.info("-" * 40)
 
-            print(" " * 50, end="\r", flush=True)
+                if output_file:
+                    final_out = result
+                    if "```" in result:
+                        try:
+                            blocks = result.split("```")
+                            if len(blocks) >= 3:
+                                block_lines = blocks[1].splitlines()
+                                if block_lines and len(block_lines[0].strip()) < 15:
+                                    final_out = "\n".join(block_lines[1:])
+                                else:
+                                    final_out = "\n".join(block_lines)
+                        except Exception: pass
 
-            logger.info(f"@{ai_name_clean}: {result}")
-            logger.info("-" * 40)
+                    with open(secure_resolve_path(output_file, "data"), "w", encoding="utf-8") as f:
+                        f.write(final_out.strip())
+                    print(f"[*] Result saved to '{output_file}'.")
+                else:
+                    print(f"\n--- {engine.name} ---\n{result}\n")
 
-            final_result = result
-            code_block_marker = chr(96) * 3
-            if output_file and code_block_marker in result:
-                lines = result.splitlines()
-                if lines and lines[0].startswith(code_block_marker): lines = lines[1:]
-                if lines and lines[-1].startswith(code_block_marker): lines = lines[:-1]
-                final_result = "\n".join(lines)
-
-            if output_file:
-                try:
-                    with open(resolve_path(output_file, "data"), "w", encoding="utf-8") as f:
-                        f.write(final_result)
-                    print(f"[*] Result written to '{data_dir}/{output_file}'.")
-                    logger.info(f"[*] System: Result saved to '{data_dir}/{output_file}'.")
-                except Exception as e:
-                    print(f"[!] Write Error: {e}")
-                    logger.error(f"[!] Write Error: {e}")
-            else:
-                print(f"\n--- {ai_name_clean} ---\n{result}\n")
+            except AIError as e:
+                clear_thinking_line()
+                print(f"[!] AI Engine Error: {e}")
 
     except KeyboardInterrupt:
-        print("\n[!] Process interrupted. Type 'exit' to quit.")
+        print("\n[!] Session interrupted. Type 'exit' to quit.")
     except Exception as e:
-        print(f"[!] Error: {e}")
-        logger.error(f"[!] Main Loop Error: {e}")
-        
+        print(f"[!] An unexpected error occurred: {e}")
+        logger.error(f"Main Loop Critical Error: {e}")
