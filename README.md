@@ -1,7 +1,7 @@
 # multi-ai-cli
 A lightweight CLI to orchestrate Gemini, GPT, Claude, and Grok using your local files as a shared blackboard.
 
-## 🐉 Multi-AI CLI (v0.4.0 Quad-Engine + HUD Edition)
+## 🐉 Multi-AI CLI (v0.4.1 Quad-Engine + HUD Edition)
 Break free from the browser copy-paste hell. Turn your terminal into a multi-agent AI war room.
 
 Multi-AI CLI is a lightweight, zero-friction command-line tool designed to seamlessly orchestrate the world's leading AI engines: **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, and **xAI Grok**.
