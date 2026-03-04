@@ -8,11 +8,15 @@ import google.generativeai as genai
 from openai import OpenAI
 from anthropic import Anthropic
 
+# Version Information
+VERSION = "0.4.1"
+
 # --------------------------------------------------
 # 1. Argparse & Config Management
 # --------------------------------------------------
 parser = argparse.ArgumentParser(description="Multi-AI CLI (Quad Engine Edition)")
 parser.add_argument("--no-log", action="store_true", help="Disable logging for this session (Stealth Mode)")
+parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
 args = parser.parse_args()
 
 INI_FILE = "multi_ai_cli.ini"
@@ -176,7 +180,7 @@ def call_grok(prompt):
 # --------------------------------------------------
 def print_welcome_banner():
     print(f"==================================================")
-    print(f"  Multi-AI CLI v0.4.0 (Quad Engine + HUD Edition)")
+    print(f"  Multi-AI CLI v{VERSION} (Quad Engine + HUD Edition)")
     print(f"  Gemini: {gemini_model_name}")
     print(f"  GPT   : {gpt_model_name}")
     print(f"  Claude: {claude_model_name}")
@@ -195,7 +199,7 @@ while True:
         user_input = input("% ").strip()
         if not user_input: continue
         if user_input.lower() in ["exit", "quit"]:
-            print("\n[*] Shutting down the Quad Engine... Goodbye!")
+            print(f"\n[*] Shutting down the Quad Engine v{VERSION}... Goodbye!")
             logger.info("--- Session Ended ---")
             break
 
