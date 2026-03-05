@@ -7,6 +7,8 @@ import shlex
 import shutil
 import tempfile
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from logging.handlers import RotatingFileHandler
 from abc import ABC, abstractmethod
 
@@ -18,16 +20,21 @@ from anthropic import Anthropic
 # ==================================================
 # Constants & Configuration
 # ==================================================
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_MAX_HISTORY_TURNS = 30
+
+# ==================================================
+# Thread-Safe Console Lock
+# ==================================================
+_console_lock = threading.Lock()
 
 # --------------------------------------------------
 # 1. Argparse & Config Management
 # --------------------------------------------------
 parser = argparse.ArgumentParser(
-    description=f"Multi-AI CLI v{VERSION} (Sequential Execution Update)"
+    description=f"Multi-AI CLI v{VERSION} (Parallel Execution Update)"
 )
 parser.add_argument(
     "--no-log",
@@ -619,12 +626,18 @@ def build_ai_prompt(parsed, editor_content=None):
 
 
 # --------------------------------------------------
-# 5.5 Main Loop Helpers & UI
+# 5.5 Main Loop Helpers & UI (Thread-Safe)
 # --------------------------------------------------
+def safe_print(*args_print, **kwargs):
+    """Thread-safe wrapper around print using the global console lock."""
+    with _console_lock:
+        print(*args_print, **kwargs)
+
+
 def print_welcome_banner():
     """Displays the startup banner with model info and available commands."""
     print("==================================================")
-    print(f"  Multi-AI CLI v{VERSION} (Sequential Execution Support)")
+    print(f"  Multi-AI CLI v{VERSION} (Parallel Execution Support)")
     for name, eng in engines.items():
         print(f"  {eng.name:<6}: {eng.model_name}")
     print("==================================================")
@@ -638,6 +651,7 @@ def print_welcome_banner():
     print("[*] Editor:   @model -e | --edit  (uses $EDITOR or vi)")
     print("[*] Sequence: @sequence -e  (multi-step pipeline via editor)")
     print("[*]           Use '->' to chain steps in editor mode")
+    print("[*]           Use '[ cmd1 || cmd2 ]' for parallel execution")
     print("[*] Flags:    -r <file> (read, repeatable)  -w <file> (write)")
     print("[*]           -m \"<msg>\" (message flag, wrap in quotes)")
     print()
@@ -645,14 +659,12 @@ def print_welcome_banner():
 
 def clear_thinking_line():
     """Clears the 'thinking' status line in the terminal."""
-    cols = shutil.get_terminal_size().columns
-    print(" " * (cols - 1), end="\r", flush=True)
+    with _console_lock:
+        cols = shutil.get_terminal_size().columns
+        print(" " * (cols - 1), end="\r", flush=True)
 
 
 def extract_code_block(text):
-    """
-    テスト対象の新しいパーサ関数
-    """
     if "```" not in text:
         return text
 
@@ -683,6 +695,7 @@ def extract_code_block(text):
         return "\n\n".join(extracted_blocks)
 
     return text
+
 
 def handle_scrub(parts):
     """Handles the @scrub / @flush command."""
@@ -763,17 +776,18 @@ def handle_ai_interaction(parts):
     try:
         prompt_main = build_ai_prompt(parsed, editor_content)
     except AIError as e:
-        print(f"[!] {e}")
+        safe_print(f"[!] {e}")
         return False
 
     # --- Step 4: Validate prompt ---
     if not prompt_main.strip():
-        print("[!] No prompt to send. Provide text, use -e, -m, or -r.")
+        safe_print("[!] No prompt to send. Provide text, use -e, -m, or -r.")
         return False
 
     # --- Step 5: Send to AI ---
     logger.info(f"@User ({engine.name}): {prompt_main}")
-    print(f"[*] {engine.name} is thinking...", end="\r", flush=True)
+    with _console_lock:
+        print(f"[*] {engine.name} is thinking...", end="\r", flush=True)
     logger.info(f"[*] {engine.name} is thinking...")
 
     try:
@@ -789,19 +803,20 @@ def handle_ai_interaction(parts):
                 f.write(final_out.strip())
                 f.flush()
                 os.fsync(f.fileno())
-            print(f"[*] Result saved to '{parsed.write_file}'.")
+            safe_print(f"[*] Result saved to '{parsed.write_file}'.")
         else:
-            print(f"\n--- {engine.name} ---\n{result}\n")
+            safe_print(f"\n--- {engine.name} ---\n{result}\n")
 
         return True
 
     except AIError as e:
         clear_thinking_line()
-        print(f"[!] AI Engine Error: {e}")
+        safe_print(f"[!] AI Engine Error: {e}")
         return False
 
 # --------------------------------------------------
-# 5.6 @sequence Command Handler (Refactored in v0.8.0)
+# 5.6 @sequence Command Handler (Refactored in v0.9.0)
+#     Now supports Parallel Execution via [ ... || ... ] syntax
 # --------------------------------------------------
 def smart_split_steps(text):
     """
@@ -871,6 +886,75 @@ def smart_split_steps(text):
     return steps
 
 
+def smart_split_parallel(text):
+    """
+    Splits a string by the '||' operator while respecting quoted strings.
+
+    The '||' inside single or double quoted strings is treated as literal
+    text and NOT used as a parallel delimiter.
+
+    Parameters
+    ----------
+    text : str
+        The raw text of a single step (content between '[' and ']').
+
+    Returns
+    -------
+    list[str]
+        A list of raw parallel task strings. If no '||' is found outside
+        quotes, the result is a single-element list containing the
+        original text.
+
+    Algorithm
+    ---------
+    Scans character-by-character tracking quote state:
+      - When inside quotes, '||' is accumulated as regular text.
+      - When outside quotes, '||' triggers a split.
+      - Escaped quotes (backslash-quote) do not toggle quote state.
+      - A single '|' (not followed by another '|') is NOT a delimiter.
+    """
+    segments = []
+    current = []
+    in_quote = None  # None, '"', or "'"
+    i = 0
+    length = len(text)
+
+    while i < length:
+        ch = text[i]
+
+        # Handle escape sequences (backslash)
+        if ch == '\\' and i + 1 < length:
+            current.append(ch)
+            current.append(text[i + 1])
+            i += 2
+            continue
+
+        # Handle quote state toggling
+        if ch in ('"', "'"):
+            if in_quote is None:
+                in_quote = ch
+            elif in_quote == ch:
+                in_quote = None
+            current.append(ch)
+            i += 1
+            continue
+
+        # Check for '||' delimiter only when outside quotes
+        if in_quote is None and ch == '|' and i + 1 < length and text[i + 1] == '|':
+            segments.append(''.join(current))
+            current = []
+            i += 2  # skip both '|' characters
+            continue
+
+        current.append(ch)
+        i += 1
+
+    # Append the final segment
+    segments.append(''.join(current))
+
+    return segments
+
+
 def normalize_step(step_text):
     """
     Normalizes a single step's raw text for tokenization.
@@ -907,15 +991,42 @@ def normalize_step(step_text):
     return normalized.strip()
 
 
+def detect_parallel_block(normalized_text):
+    """
+    Detects whether a normalized step text is a parallel block wrapped
+    in '[' and ']' brackets.
+
+    Parameters
+    ----------
+    normalized_text : str
+        The normalized (single-line, comment-free) step text.
+
+    Returns
+    -------
+    tuple[bool, str]
+        (is_parallel, inner_text)
+        - is_parallel: True if the step is wrapped in [ ... ]
+        - inner_text: The content inside the brackets (stripped), or
+          the original text if not a parallel block.
+    """
+    stripped = normalized_text.strip()
+    if stripped.startswith('[') and stripped.endswith(']'):
+        inner = stripped[1:-1].strip()
+        return True, inner
+    return False, stripped
+
+
 def parse_sequence_steps(editor_content):
     """
-    Parses the full editor content into a list of tokenized step commands.
+    Parses the full editor content into a nested list of tokenized step commands.
 
     Pipeline:
       1. Smart-split by '->' (respecting quoted strings)
       2. Normalize each step (strip comments, collapse whitespace)
-      3. Tokenize each step with shlex
-      4. Validate each step targets a known AI engine
+      3. Detect parallel blocks wrapped in [ ... ]
+      4. For parallel blocks, smart-split by '||' into sub-tasks
+      5. Tokenize each task with shlex
+      6. Validate each task targets a known AI engine
 
     Parameters
     ----------
@@ -924,54 +1035,155 @@ def parse_sequence_steps(editor_content):
 
     Returns
     -------
-    list[list[str]] | None
-        A list of token lists (one per step), ready for handle_ai_interaction().
+    list[list[list[str]]] | None
+        A nested list where:
+          - Outer list = sequential steps
+          - Middle list = parallel tasks within a step (1 task = sequential,
+            multiple = parallel)
+          - Inner list = token list for a single command
         Returns None if any parsing or validation error occurs.
+
+    Example
+    -------
+    For input:
+      @gemini "hello" -w out.txt -> [ @gpt "a" || @claude "b" ] -> @grok "c"
+
+    Returns:
+      [
+        [['@gemini', 'hello', '-w', 'out.txt']],          # step 1: sequential
+        [['@gpt', 'a'], ['@claude', 'b']],                # step 2: parallel
+        [['@grok', 'c']]                                   # step 3: sequential
+      ]
     """
-    # Step 1: Smart split
+    # Step 1: Smart split by '->'
     raw_steps = smart_split_steps(editor_content)
 
-    # Step 2 & 3: Normalize and tokenize
+    # Step 2-6: Process each raw step
     parsed_steps = []
-    for idx, raw in enumerate(raw_steps, start=1):
+    global_step_idx = 0
+
+    for raw in raw_steps:
         normalized = normalize_step(raw)
 
         # Skip empty steps (e.g., trailing '->' or comment-only blocks)
         if not normalized:
             continue
 
-        try:
-            tokens = shlex.split(normalized)
-        except ValueError as e:
-            print(f"[!] Step {idx}: Parse error (mismatched quotes?): {e}")
-            logger.error(f"@sequence step {idx} shlex error: {e}")
-            return None
+        global_step_idx += 1
 
-        if not tokens:
-            continue
+        # Step 3: Detect parallel block
+        is_parallel, inner_text = detect_parallel_block(normalized)
 
-        # Step 4: Validate engine target
-        cmd_key = tokens[0].lower().replace('@', '')
-        if cmd_key not in engines:
-            print(f"[!] Step {idx}: Unknown model '{tokens[0]}'")
-            print(
-                f"    Available models: {', '.join('@' + k for k in engines.keys())}"
-            )
-            logger.warning(f"@sequence step {idx}: unknown model '{tokens[0]}'")
-            return None
+        if is_parallel:
+            # Step 4: Split by '||'
+            parallel_segments = smart_split_parallel(inner_text)
+            parallel_tasks = []
 
-        # Ensure @ prefix for handle_ai_interaction
-        if not tokens[0].startswith('@'):
-            tokens[0] = '@' + tokens[0]
+            for seg_idx, segment in enumerate(parallel_segments, start=1):
+                seg_normalized = normalize_step(segment)
+                if not seg_normalized:
+                    print(
+                        f"[!] Step {global_step_idx}, parallel task {seg_idx}: "
+                        f"Empty task in parallel block."
+                    )
+                    logger.error(
+                        f"@sequence step {global_step_idx}, "
+                        f"parallel task {seg_idx}: empty"
+                    )
+                    return None
 
-        parsed_steps.append(tokens)
+                try:
+                    tokens = shlex.split(seg_normalized)
+                except ValueError as e:
+                    print(
+                        f"[!] Step {global_step_idx}, parallel task {seg_idx}: "
+                        f"Parse error (mismatched quotes?): {e}"
+                    )
+                    logger.error(
+                        f"@sequence step {global_step_idx}, "
+                        f"parallel task {seg_idx} shlex error: {e}"
+                    )
+                    return None
+
+                if not tokens:
+                    continue
+
+                # Validate engine target
+                cmd_key = tokens[0].lower().replace('@', '')
+                if cmd_key not in engines:
+                    print(
+                        f"[!] Step {global_step_idx}, parallel task {seg_idx}: "
+                        f"Unknown model '{tokens[0]}'"
+                    )
+                    print(
+                        f"    Available models: "
+                        f"{', '.join('@' + k for k in engines.keys())}"
+                    )
+                    logger.warning(
+                        f"@sequence step {global_step_idx}, "
+                        f"parallel task {seg_idx}: unknown model '{tokens[0]}'"
+                    )
+                    return None
+
+                # Ensure @ prefix
+                if not tokens[0].startswith('@'):
+                    tokens[0] = '@' + tokens[0]
+
+                parallel_tasks.append(tokens)
+
+            if not parallel_tasks:
+                print(
+                    f"[!] Step {global_step_idx}: "
+                    f"No valid tasks found in parallel block."
+                )
+                return None
+
+            parsed_steps.append(parallel_tasks)
+
+        else:
+            # Sequential (single task) step
+            try:
+                tokens = shlex.split(normalized)
+            except ValueError as e:
+                print(
+                    f"[!] Step {global_step_idx}: "
+                    f"Parse error (mismatched quotes?): {e}"
+                )
+                logger.error(
+                    f"@sequence step {global_step_idx} shlex error: {e}"
+                )
+                return None
+
+            if not tokens:
+                continue
+
+            # Validate engine target
+            cmd_key = tokens[0].lower().replace('@', '')
+            if cmd_key not in engines:
+                print(f"[!] Step {global_step_idx}: Unknown model '{tokens[0]}'")
+                print(
+                    f"    Available models: "
+                    f"{', '.join('@' + k for k in engines.keys())}"
+                )
+                logger.warning(
+                    f"@sequence step {global_step_idx}: "
+                    f"unknown model '{tokens[0]}'"
+                )
+                return None
+
+            # Ensure @ prefix
+            if not tokens[0].startswith('@'):
+                tokens[0] = '@' + tokens[0]
+
+            # Wrap in list to maintain nested structure: [[tokens]]
+            parsed_steps.append([tokens])
 
     return parsed_steps
 
 
 def handle_sequence(parts):
     """
-    Handles the @sequence command with Sequential Execution support.
+    Handles the @sequence command with Sequential and Parallel Execution support.
 
     Usage: @sequence -e | @sequence --edit
 
@@ -981,20 +1193,27 @@ def handle_sequence(parts):
       3. Parse the editor content into discrete steps using '->' delimiters.
          - Smart Splitting ensures '->' inside quotes is not a delimiter.
          - Comments (#) and extra whitespace are stripped.
-      4. Execute each step sequentially via handle_ai_interaction().
-         - Cascade Stop: If any step fails, halt immediately.
+         - Steps wrapped in [ ... ] with '||' are parsed as parallel blocks.
+      4. Execute each step:
+         - Sequential steps: run via handle_ai_interaction() directly.
+         - Parallel steps: spawn threads via ThreadPoolExecutor, wait for all.
+         - Cascade Stop: If any step/task fails, halt after the current block.
          - Artifact Relay: Files written via -w in step N are available
-           for step N+1 to read via -r (guaranteed by fsync).
+           for step N+1 to read via -r (guaranteed by fsync + join).
 
     Example editor input:
       # Step 1: Brainstorming
-      @gemini "Suggest 3 spring color palettes" -w colors.txt
+      @gemini "Suggest a sci-fi concept" -w concept.txt
       ->
-      # Step 2: Code Generation based on previous step
-      @gpt "Create CSS variables based on colors.txt" -r colors.txt -w theme.css
-
-    This will execute Step 1, write colors.txt, then execute Step 2
-    which reads colors.txt and writes theme.css.
+      # Step 2: Parallel expansion
+      [
+          @gpt "Write a story" -r concept.txt -w story.md
+          ||
+          @claude "Analyze feasibility" -r concept.txt -w analysis.md
+      ]
+      ->
+      # Step 3: Integration
+      @grok "Write a review" -r story.md -r analysis.md -w review.md
     """
     # --- Step 1: Require -e flag ---
     has_edit_flag = any(token in ("-e", "--edit") for token in parts[1:])
@@ -1009,7 +1228,7 @@ def handle_sequence(parts):
     if editor_content is None:
         return
 
-    # --- Step 3: Parse into steps ---
+    # --- Step 3: Parse into steps (nested structure) ---
     parsed_steps = parse_sequence_steps(editor_content)
     if parsed_steps is None:
         # Parsing/validation error already printed
@@ -1021,46 +1240,119 @@ def handle_sequence(parts):
 
     total = len(parsed_steps)
 
-    # Single step: no '->' detected, behave as standard sequence
-    if total == 1:
-        print(f"[*] @sequence executing (single step): {' '.join(parsed_steps[0])}")
-        logger.info(f"[*] @sequence single step: {' '.join(parsed_steps[0])}")
-        handle_ai_interaction(parsed_steps[0])
+    # Single sequential step: no '->' detected, behave as standard sequence
+    if total == 1 and len(parsed_steps[0]) == 1:
+        tokens = parsed_steps[0][0]
+        print(f"[*] @sequence executing (single step): {' '.join(tokens)}")
+        logger.info(f"[*] @sequence single step: {' '.join(tokens)}")
+        handle_ai_interaction(tokens)
         return
 
-    # --- Step 4: Sequential Execution Pipeline ---
-    print(f"[*] Sequential Execution: {total} steps detected.")
+    # --- Step 4: Execution Pipeline ---
+    print(f"[*] Sequence Execution: {total} steps detected.")
     print("=" * 50)
     logger.info(f"[*] @sequence: Starting pipeline with {total} steps.")
 
-    for idx, step_tokens in enumerate(parsed_steps, start=1):
-        step_summary = ' '.join(step_tokens)
-        print(f"[*] Executing Step {idx}/{total}...")
-        print(f"    Command: {step_summary}")
-        logger.info(f"[*] @sequence Step {idx}/{total}: {step_summary}")
+    for idx, step_tasks in enumerate(parsed_steps, start=1):
+        num_tasks = len(step_tasks)
+        is_parallel = num_tasks > 1
 
-        success = handle_ai_interaction(step_tokens)
-
-        if not success:
-            # Cascade Stop
-            print(f"[!] Step {idx}/{total} failed. Halting sequence.")
-            print(
-                f"[!] Cascade Stop: {total - idx} remaining step(s) skipped."
+        if is_parallel:
+            # --- Parallel Execution Block ---
+            task_summaries = [' '.join(t) for t in step_tasks]
+            print(f"[*] Executing Step {idx}/{total} "
+                  f"[PARALLEL: {num_tasks} tasks]...")
+            for t_idx, summary in enumerate(task_summaries, start=1):
+                print(f"    Task {t_idx}: {summary}")
+            logger.info(
+                f"[*] @sequence Step {idx}/{total}: "
+                f"Parallel block with {num_tasks} tasks."
             )
-            logger.error(
-                f"[!] @sequence Cascade Stop at step {idx}/{total}. "
-                f"{total - idx} step(s) skipped."
-            )
-            return
 
-        print(f"[✓] Step {idx}/{total} completed successfully.")
+            # Execute all tasks concurrently using ThreadPoolExecutor
+            results = {}
+            with ThreadPoolExecutor(max_workers=num_tasks) as executor:
+                future_to_task = {}
+                for t_idx, task_tokens in enumerate(step_tasks, start=1):
+                    future = executor.submit(handle_ai_interaction, task_tokens)
+                    future_to_task[future] = t_idx
+
+                for future in as_completed(future_to_task):
+                    t_idx = future_to_task[future]
+                    try:
+                        success = future.result()
+                        results[t_idx] = success
+                    except Exception as e:
+                        logger.error(
+                            f"[!] @sequence Step {idx}, "
+                            f"Task {t_idx} exception: {e}"
+                        )
+                        results[t_idx] = False
+
+            # Check results: all must succeed for the block to pass
+            all_succeeded = all(results.values())
+            failed_tasks = [
+                t_idx for t_idx, ok in results.items() if not ok
+            ]
+
+            if not all_succeeded:
+                # Concurrent Cascade Stop
+                safe_print(
+                    f"[!] Step {idx}/{total} PARALLEL BLOCK FAILED. "
+                    f"Failed tasks: {failed_tasks}"
+                )
+                safe_print(
+                    f"[!] Cascade Stop: "
+                    f"{total - idx} remaining step(s) skipped."
+                )
+                logger.error(
+                    f"[!] @sequence Cascade Stop at step {idx}/{total} "
+                    f"(parallel). Failed tasks: {failed_tasks}. "
+                    f"{total - idx} step(s) skipped."
+                )
+                return
+
+            safe_print(
+                f"[✓] Step {idx}/{total} completed successfully "
+                f"(all {num_tasks} parallel tasks done)."
+            )
+
+        else:
+            # --- Sequential (single task) Execution ---
+            tokens = step_tasks[0]
+            step_summary = ' '.join(tokens)
+            print(f"[*] Executing Step {idx}/{total}...")
+            print(f"    Command: {step_summary}")
+            logger.info(
+                f"[*] @sequence Step {idx}/{total}: {step_summary}"
+            )
+
+            success = handle_ai_interaction(tokens)
+
+            if not success:
+                # Cascade Stop
+                print(f"[!] Step {idx}/{total} failed. Halting sequence.")
+                print(
+                    f"[!] Cascade Stop: "
+                    f"{total - idx} remaining step(s) skipped."
+                )
+                logger.error(
+                    f"[!] @sequence Cascade Stop at step {idx}/{total}. "
+                    f"{total - idx} step(s) skipped."
+                )
+                return
+
+            print(f"[✓] Step {idx}/{total} completed successfully.")
+
         if idx < total:
             print("-" * 50)
 
     # --- Pipeline complete ---
     print("=" * 50)
-    print(f"[✓] Sequential Execution complete. All {total} steps succeeded.")
-    logger.info(f"[*] @sequence: Pipeline complete. All {total} steps succeeded.")
+    print(f"[✓] Sequence Execution complete. All {total} steps succeeded.")
+    logger.info(
+        f"[*] @sequence: Pipeline complete. All {total} steps succeeded."
+    )
 
 
 # --------------------------------------------------
