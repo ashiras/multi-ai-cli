@@ -18,7 +18,7 @@ from anthropic import Anthropic
 # ==================================================
 # Constants & Configuration
 # ==================================================
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_MAX_HISTORY_TURNS = 30
@@ -27,7 +27,7 @@ DEFAULT_MAX_HISTORY_TURNS = 30
 # 1. Argparse & Config Management
 # --------------------------------------------------
 parser = argparse.ArgumentParser(
-    description=f"Multi-AI CLI v{VERSION} (Sequence Command Update)"
+    description=f"Multi-AI CLI v{VERSION} (Sequential Execution Update)"
 )
 parser.add_argument(
     "--no-log",
@@ -141,7 +141,7 @@ def secure_resolve_path(filename, category="data"):
 
 
 # --------------------------------------------------
-# 2.5 Editor Integration (NEW in v0.5.5)
+# 2.5 Editor Integration
 # --------------------------------------------------
 def open_editor_for_prompt():
     """
@@ -197,7 +197,6 @@ def open_editor_for_prompt():
             idx = lines.index(MARKER) + 1
             content = "\n".join(lines[idx:]).lstrip("\n").strip()
         else:
-            # Fallback: drop only the initial comment/header block (+ blank lines)
             content_lines = []
             started = False
             for line in lines:
@@ -625,7 +624,7 @@ def build_ai_prompt(parsed, editor_content=None):
 def print_welcome_banner():
     """Displays the startup banner with model info and available commands."""
     print("==================================================")
-    print(f"  Multi-AI CLI v{VERSION} (Sequence Command Support)")
+    print(f"  Multi-AI CLI v{VERSION} (Sequential Execution Support)")
     for name, eng in engines.items():
         print(f"  {eng.name:<6}: {eng.model_name}")
     print("==================================================")
@@ -637,7 +636,8 @@ def print_welcome_banner():
     print(f"[*] Logging: {log_status}")
     print("[*] Commands: @model, @efficient, @scrub, @sequence, exit")
     print("[*] Editor:   @model -e | --edit  (uses $EDITOR or vi)")
-    print("[*] Sequence: @sequence -e  (multi-line command via editor)")
+    print("[*] Sequence: @sequence -e  (multi-step pipeline via editor)")
+    print("[*]           Use '->' to chain steps in editor mode")
     print("[*] Flags:    -r <file> (read, repeatable)  -w <file> (write)")
     print("[*]           -m \"<msg>\" (message flag, wrap in quotes)")
     print()
@@ -651,36 +651,37 @@ def clear_thinking_line():
 
 def extract_code_block(text):
     """
-    If the response contains fenced code blocks, extract their contents.
-    If multiple blocks exist, concatenates all of them.
-    Used when writing output to a file with -w flag.
+    テスト対象の新しいパーサ関数
     """
     if "```" not in text:
         return text
 
-    try:
-        blocks = text.split("```")
-        extracted_codes = []
-        
-        # 奇数番目 (1, 3, 5...) がコードブロック本体
-        for i in range(1, len(blocks), 2):
-            block_lines = blocks[i].splitlines()
-            if not block_lines:
-                continue
-                
-            # Skip the language identifier line (e.g., python, bash)
-            if len(block_lines[0].strip()) < 15 and " " not in block_lines[0].strip():
-                extracted_codes.append("\n".join(block_lines[1:]))
+    lines = text.splitlines()
+    extracted_blocks = []
+    current_block = []
+    in_block = False
+
+    for line in lines:
+        if line.startswith("```"):
+            if not in_block:
+                in_block = True
             else:
-                extracted_codes.append("\n".join(block_lines))
-                
-        if extracted_codes:
-            # 複数のブロックがあった場合、間に空行を挟んで結合する
-            return "\n\n".join(extracted_codes)
-            
-    except Exception as e:
-        logger.warning(f"Failed to extract code blocks: {e}")
-        
+                if line.strip() == "```":
+                    in_block = False
+                    extracted_blocks.append("\n".join(current_block))
+                    current_block = []
+                else:
+                    current_block.append(line)
+        else:
+            if in_block:
+                current_block.append(line)
+
+    if in_block and current_block:
+        extracted_blocks.append("\n".join(current_block))
+
+    if extracted_blocks:
+        return "\n\n".join(extracted_blocks)
+
     return text
 
 def handle_scrub(parts):
@@ -735,6 +736,13 @@ def handle_ai_interaction(parts):
 
     Prompt construction priority:
       a1 (context) -> a2 (-m message) -> e (editor) -> Files (-r)
+
+    Returns
+    -------
+    bool
+        True if the interaction completed successfully, False otherwise.
+        This return value is used by the sequential execution pipeline
+        to implement Cascade Stop behavior.
     """
     target_key = parts[0].lower().replace("@", "")
     engine = engines[target_key]
@@ -742,26 +750,26 @@ def handle_ai_interaction(parts):
     # --- Step 1: Parse CLI input into structured data ---
     parsed = parse_cli_input(parts)
     if parsed is None:
-        return
+        return False
 
     # --- Step 2: Editor mode ---
     editor_content = None
     if parsed.use_editor:
         editor_content = open_editor_for_prompt()
         if editor_content is None:
-            return
+            return False
 
     # --- Step 3: Build the prompt in fixed priority order ---
     try:
         prompt_main = build_ai_prompt(parsed, editor_content)
     except AIError as e:
         print(f"[!] {e}")
-        return
+        return False
 
     # --- Step 4: Validate prompt ---
     if not prompt_main.strip():
         print("[!] No prompt to send. Provide text, use -e, -m, or -r.")
-        return
+        return False
 
     # --- Step 5: Send to AI ---
     logger.info(f"@User ({engine.name}): {prompt_main}")
@@ -779,40 +787,214 @@ def handle_ai_interaction(parts):
             out_path = secure_resolve_path(parsed.write_file, "data")
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(final_out.strip())
+                f.flush()
+                os.fsync(f.fileno())
             print(f"[*] Result saved to '{parsed.write_file}'.")
         else:
             print(f"\n--- {engine.name} ---\n{result}\n")
 
+        return True
+
     except AIError as e:
         clear_thinking_line()
         print(f"[!] AI Engine Error: {e}")
-
+        return False
 
 # --------------------------------------------------
-# 5.6 @sequence Command Handler (NEW in v0.7.0)
+# 5.6 @sequence Command Handler (Refactored in v0.8.0)
 # --------------------------------------------------
+def smart_split_steps(text):
+    """
+    Splits editor content into discrete steps using the '->' delimiter,
+    while respecting quoted strings (Smart Splitting).
+
+    The '->' operator inside single or double quoted strings is preserved
+    as literal text and NOT treated as a step delimiter.
+
+    Parameters
+    ----------
+    text : str
+        The raw editor content (may contain newlines, comments, quotes).
+
+    Returns
+    -------
+    list[str]
+        A list of raw step strings (not yet normalized). Each element
+        represents the text between '->' delimiters.
+
+    Algorithm
+    ---------
+    Scans character-by-character tracking quote state:
+      - When inside quotes, '->' is accumulated as regular text.
+      - When outside quotes, '->' triggers a split.
+      - Escaped quotes (backslash-quote) do not toggle quote state.
+    """
+    steps = []
+    current = []
+    in_quote = None  # None, '"', or "'"
+    i = 0
+    length = len(text)
+
+    while i < length:
+        ch = text[i]
+
+        # Handle escape sequences (backslash)
+        if ch == '\\' and i + 1 < length:
+            current.append(ch)
+            current.append(text[i + 1])
+            i += 2
+            continue
+
+        # Handle quote state toggling
+        if ch in ('"', "'"):
+            if in_quote is None:
+                in_quote = ch
+            elif in_quote == ch:
+                in_quote = None
+            current.append(ch)
+            i += 1
+            continue
+
+        # Check for '->' delimiter only when outside quotes
+        if in_quote is None and ch == '-' and i + 1 < length and text[i + 1] == '>':
+            steps.append(''.join(current))
+            current = []
+            i += 2  # skip both '-' and '>'
+            continue
+
+        current.append(ch)
+        i += 1
+
+    # Append the final segment
+    steps.append(''.join(current))
+
+    return steps
+
+
+def normalize_step(step_text):
+    """
+    Normalizes a single step's raw text for tokenization.
+
+    Processing:
+      1. Remove lines that are pure comments (start with '#' after whitespace).
+      2. Strip leading/trailing whitespace from each remaining line.
+      3. Join all remaining lines with a single space.
+      4. Collapse multiple spaces into one.
+
+    Parameters
+    ----------
+    step_text : str
+        Raw text of a single step (may contain newlines, comments).
+
+    Returns
+    -------
+    str
+        A single normalized line ready for shlex tokenization.
+    """
+    lines = step_text.splitlines()
+    filtered = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip empty lines and comment-only lines
+        if not stripped or stripped.startswith('#'):
+            continue
+        filtered.append(stripped)
+
+    normalized = ' '.join(filtered)
+    # Collapse multiple spaces into one
+    while '  ' in normalized:
+        normalized = normalized.replace('  ', ' ')
+    return normalized.strip()
+
+
+def parse_sequence_steps(editor_content):
+    """
+    Parses the full editor content into a list of tokenized step commands.
+
+    Pipeline:
+      1. Smart-split by '->' (respecting quoted strings)
+      2. Normalize each step (strip comments, collapse whitespace)
+      3. Tokenize each step with shlex
+      4. Validate each step targets a known AI engine
+
+    Parameters
+    ----------
+    editor_content : str
+        The raw multi-line content from the editor.
+
+    Returns
+    -------
+    list[list[str]] | None
+        A list of token lists (one per step), ready for handle_ai_interaction().
+        Returns None if any parsing or validation error occurs.
+    """
+    # Step 1: Smart split
+    raw_steps = smart_split_steps(editor_content)
+
+    # Step 2 & 3: Normalize and tokenize
+    parsed_steps = []
+    for idx, raw in enumerate(raw_steps, start=1):
+        normalized = normalize_step(raw)
+
+        # Skip empty steps (e.g., trailing '->' or comment-only blocks)
+        if not normalized:
+            continue
+
+        try:
+            tokens = shlex.split(normalized)
+        except ValueError as e:
+            print(f"[!] Step {idx}: Parse error (mismatched quotes?): {e}")
+            logger.error(f"@sequence step {idx} shlex error: {e}")
+            return None
+
+        if not tokens:
+            continue
+
+        # Step 4: Validate engine target
+        cmd_key = tokens[0].lower().replace('@', '')
+        if cmd_key not in engines:
+            print(f"[!] Step {idx}: Unknown model '{tokens[0]}'")
+            print(
+                f"    Available models: {', '.join('@' + k for k in engines.keys())}"
+            )
+            logger.warning(f"@sequence step {idx}: unknown model '{tokens[0]}'")
+            return None
+
+        # Ensure @ prefix for handle_ai_interaction
+        if not tokens[0].startswith('@'):
+            tokens[0] = '@' + tokens[0]
+
+        parsed_steps.append(tokens)
+
+    return parsed_steps
+
+
 def handle_sequence(parts):
     """
-    Handles the @sequence command.
+    Handles the @sequence command with Sequential Execution support.
 
     Usage: @sequence -e | @sequence --edit
 
     Flow:
       1. Verify that -e / --edit flag is present (required).
       2. Open the editor via open_editor_for_prompt().
-      3. Normalize the multi-line editor content into a single line
-         by replacing newlines with spaces.
-      4. Tokenize the normalized line using shlex (to preserve quoted strings).
-      5. Validate that the resulting command targets a known AI engine.
-      6. Dispatch to handle_ai_interaction() via the standard pipeline.
+      3. Parse the editor content into discrete steps using '->' delimiters.
+         - Smart Splitting ensures '->' inside quotes is not a delimiter.
+         - Comments (#) and extra whitespace are stripped.
+      4. Execute each step sequentially via handle_ai_interaction().
+         - Cascade Stop: If any step fails, halt immediately.
+         - Artifact Relay: Files written via -w in step N are available
+           for step N+1 to read via -r (guaranteed by fsync).
 
     Example editor input:
-      @gemini "Fix Code"
-        -r code.py
-        -w new_code.py
+      # Step 1: Brainstorming
+      @gemini "Suggest 3 spring color palettes" -w colors.txt
+      ->
+      # Step 2: Code Generation based on previous step
+      @gpt "Create CSS variables based on colors.txt" -r colors.txt -w theme.css
 
-    Normalized to:
-      @gemini "Fix Code" -r code.py -w new_code.py
+    This will execute Step 1, write colors.txt, then execute Step 2
+    which reads colors.txt and writes theme.css.
     """
     # --- Step 1: Require -e flag ---
     has_edit_flag = any(token in ("-e", "--edit") for token in parts[1:])
@@ -822,50 +1004,63 @@ def handle_sequence(parts):
         return
 
     # --- Step 2: Open editor to capture multi-line command ---
-    logger.info("[*] @sequence: Opening editor for multi-line command input.")
+    logger.info("[*] @sequence: Opening editor for sequential pipeline input.")
     editor_content = open_editor_for_prompt()
     if editor_content is None:
-        # User cancelled or editor returned empty
         return
 
-    # --- Step 3: Normalize newlines to spaces ---
-    normalized = editor_content.replace('\n', ' ').strip()
-    logger.info(f"[*] @sequence normalized command: {normalized}")
-
-    if not normalized.strip():
-        print("[!] Sequence command is empty after normalization. Cancelled.")
+    # --- Step 3: Parse into steps ---
+    parsed_steps = parse_sequence_steps(editor_content)
+    if parsed_steps is None:
+        # Parsing/validation error already printed
         return
 
-    # --- Step 4: Tokenize using shlex to respect quoted strings ---
-    try:
-        seq_parts = shlex.split(normalized)
-    except ValueError as e:
-        print(f"[!] Sequence parse error (mismatched quotes?): {e}")
-        logger.error(f"@sequence shlex parse error: {e}")
+    if not parsed_steps:
+        print("[!] No valid steps found in sequence. Cancelled.")
         return
 
-    if not seq_parts:
-        print("[!] Sequence command is empty after tokenization. Cancelled.")
+    total = len(parsed_steps)
+
+    # Single step: no '->' detected, behave as standard sequence
+    if total == 1:
+        print(f"[*] @sequence executing (single step): {' '.join(parsed_steps[0])}")
+        logger.info(f"[*] @sequence single step: {' '.join(parsed_steps[0])}")
+        handle_ai_interaction(parsed_steps[0])
         return
 
-    # --- Step 5: Validate the command targets a known engine ---
-    seq_cmd = seq_parts[0].lower().replace("@", "")
-    if seq_cmd not in engines:
-        print(f"[!] Unknown model in sequence command: '{seq_parts[0]}'")
-        print(
-            f"    Available models: {', '.join('@' + k for k in engines.keys())}"
-        )
-        logger.warning(f"@sequence: unknown model '{seq_parts[0]}'")
-        return
+    # --- Step 4: Sequential Execution Pipeline ---
+    print(f"[*] Sequential Execution: {total} steps detected.")
+    print("=" * 50)
+    logger.info(f"[*] @sequence: Starting pipeline with {total} steps.")
 
-    # Ensure the first token has the @ prefix for handle_ai_interaction
-    if not seq_parts[0].startswith("@"):
-        seq_parts[0] = "@" + seq_parts[0]
+    for idx, step_tokens in enumerate(parsed_steps, start=1):
+        step_summary = ' '.join(step_tokens)
+        print(f"[*] Executing Step {idx}/{total}...")
+        print(f"    Command: {step_summary}")
+        logger.info(f"[*] @sequence Step {idx}/{total}: {step_summary}")
 
-    # --- Step 6: Dispatch to existing handler ---
-    print(f"[*] @sequence executing: {' '.join(seq_parts)}")
-    logger.info(f"[*] @sequence dispatching: {' '.join(seq_parts)}")
-    handle_ai_interaction(seq_parts)
+        success = handle_ai_interaction(step_tokens)
+
+        if not success:
+            # Cascade Stop
+            print(f"[!] Step {idx}/{total} failed. Halting sequence.")
+            print(
+                f"[!] Cascade Stop: {total - idx} remaining step(s) skipped."
+            )
+            logger.error(
+                f"[!] @sequence Cascade Stop at step {idx}/{total}. "
+                f"{total - idx} step(s) skipped."
+            )
+            return
+
+        print(f"[✓] Step {idx}/{total} completed successfully.")
+        if idx < total:
+            print("-" * 50)
+
+    # --- Pipeline complete ---
+    print("=" * 50)
+    print(f"[✓] Sequential Execution complete. All {total} steps succeeded.")
+    logger.info(f"[*] @sequence: Pipeline complete. All {total} steps succeeded.")
 
 
 # --------------------------------------------------
