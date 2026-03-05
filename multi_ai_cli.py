@@ -17,7 +17,7 @@ from anthropic import Anthropic
 # ==================================================
 # Constants & Configuration
 # ==================================================
-VERSION = "0.5.5"
+VERSION = "0.6.0"
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_MAX_HISTORY_TURNS = 30
@@ -169,7 +169,7 @@ def open_editor_for_prompt():
         f"{MARKER}\n"
         "\n"
     )
-    
+
     tmp_fd = None
     tmp_path = None
     try:
@@ -449,7 +449,177 @@ except Exception as e:
 
 
 # --------------------------------------------------
-# 5. Main Loop & UI
+# 5. CLI Input Parsing & Prompt Assembly (Refactored)
+# --------------------------------------------------
+class ParsedInput:
+    """
+    Data class holding the result of CLI input parsing.
+
+    Attributes:
+        a1          : Context / title text (bare words, no flags)
+        message     : Text provided via -m flag
+        read_files  : List of filenames provided via repeated -r flags
+        write_file  : Single output filename provided via -w flag
+        use_editor  : Whether -e / --edit was specified
+    """
+
+    def __init__(self):
+        self.a1 = ""
+        self.message = ""
+        self.read_files = []
+        self.write_file = None
+        self.use_editor = False
+
+
+def parse_cli_input(parts):
+    """
+    Parse the token list produced by splitting the user's input line.
+
+    Pattern B rules
+    ----------------
+    * ``parts[0]`` is always the ``@model`` token and is consumed silently.
+    * ``-r <file>`` / ``--read <file>`` can appear **multiple times**.
+      Each occurrence appends one filename to ``read_files``.
+    * ``-w <file>`` / ``--write <file>`` appears **at most once**.
+      If repeated, the last value wins (with a warning).
+    * ``-m <text>`` / ``--message <text>`` consumes the **single next token**
+      as a message string. If repeated, values are space-joined.
+    * ``-e`` / ``--edit`` is a boolean flag (no argument).
+    * All remaining (unflagged) tokens after ``parts[0]`` become ``a1``.
+
+    Returns
+    -------
+    ParsedInput | None
+        ``None`` signals a parsing error that was already printed to the user.
+    """
+    parsed = ParsedInput()
+    indices_to_skip = {0}  # skip @model token
+
+    i = 1
+    while i < len(parts):
+        token = parts[i]
+
+        # --- -r / --read (repeatable) ---
+        if token in ("-r", "--read"):
+            if i + 1 >= len(parts):
+                print(f"[!] Flag '{token}' requires a filename argument.")
+                return None
+            parsed.read_files.append(parts[i + 1])
+            indices_to_skip.update({i, i + 1})
+            i += 2
+            continue
+
+        # --- -w / --write (single) ---
+        if token in ("-w", "--write"):
+            if i + 1 >= len(parts):
+                print(f"[!] Flag '{token}' requires a filename argument.")
+                return None
+            if parsed.write_file is not None:
+                print(
+                    f"[!] Warning: -w specified more than once. "
+                    f"Overwriting '{parsed.write_file}' with '{parts[i + 1]}'."
+                )
+            parsed.write_file = parts[i + 1]
+            indices_to_skip.update({i, i + 1})
+            i += 2
+            continue
+
+        # --- -m / --message (repeatable, single-token value each time) ---
+        if token in ("-m", "--message"):
+            if i + 1 >= len(parts):
+                print(f"[!] Flag '{token}' requires a text argument.")
+                return None
+            msg_val = parts[i + 1]
+            if parsed.message:
+                parsed.message += " " + msg_val
+            else:
+                parsed.message = msg_val
+            indices_to_skip.update({i, i + 1})
+            i += 2
+            continue
+
+        # --- -e / --edit (boolean) ---
+        if token in ("-e", "--edit"):
+            parsed.use_editor = True
+            indices_to_skip.add(i)
+            i += 1
+            continue
+
+        # --- ordinary token (contributes to a1) ---
+        i += 1
+
+    # Build a1 from remaining tokens
+    a1_tokens = [
+        parts[j] for j in range(len(parts)) if j not in indices_to_skip
+    ]
+    parsed.a1 = " ".join(a1_tokens)
+
+    return parsed
+
+
+def build_ai_prompt(parsed, editor_content=None):
+    """
+    Assemble the final prompt string sent to the AI engine.
+
+    Construction priority (fixed order)
+    ------------------------------------
+    1. **a1**  – Context / title (bare words from the command line)
+    2. **a2**  – Message supplied via ``-m``
+    3. **e**   – Editor content (placeholder slot; populated when ``-e`` is used)
+    4. **Files** – Contents of files supplied via ``-r``, each wrapped in clear
+       delimiters to prevent AI context confusion.
+
+    Parameters
+    ----------
+    parsed : ParsedInput
+        The structured result from ``parse_cli_input()``.
+    editor_content : str | None
+        Text captured from the editor when ``-e`` was used.
+
+    Returns
+    -------
+    str
+        The fully assembled prompt string (may be empty – caller should validate).
+    """
+    sections = []
+
+    # 1. a1 – Context / Title
+    if parsed.a1.strip():
+        sections.append(parsed.a1.strip())
+
+    # 2. a2 – Message (-m)
+    if parsed.message.strip():
+        sections.append(parsed.message.strip())
+
+    # 3. e – Editor content (placeholder slot)
+    if editor_content and editor_content.strip():
+        sections.append(editor_content.strip())
+
+    # 4. Files (-r) with clear delimiters
+    if parsed.read_files:
+        file_sections = []
+        for filename in parsed.read_files:
+            try:
+                filepath = secure_resolve_path(filename, "data")
+                with open(filepath, "r", encoding="utf-8") as f:
+                    file_content = f.read()
+                file_sections.append(
+                    f"--- [File: {filename}] ---\n"
+                    f"{file_content}\n"
+                    f"--- [End of File: {filename}] ---"
+                )
+            except Exception as e:
+                # Propagate as AIError so the caller can handle it uniformly
+                raise AIError(f"Error reading input file '{filename}': {e}")
+
+        if file_sections:
+            sections.append("\n\n".join(file_sections))
+
+    return "\n\n".join(sections)
+
+
+# --------------------------------------------------
+# 5.5 Main Loop Helpers & UI
 # --------------------------------------------------
 def print_welcome_banner():
     """Displays the startup banner with model info and available commands."""
@@ -466,7 +636,8 @@ def print_welcome_banner():
     print(f"[*] Logging: {log_status}")
     print("[*] Commands: @model, @efficient, @scrub, exit")
     print("[*] Editor:   @model -e | --edit  (uses $EDITOR or vi)")
-    print("[*] Flags:    -r <file> (read)  -w <file> (write)")
+    print("[*] Flags:    -r <file> (read, repeatable)  -w <file> (write)")
+    print("[*]           -m \"<msg>\" (message flag, wrap in quotes)")
     print()
 
 
@@ -541,106 +712,44 @@ def handle_efficient(parts):
         print(f"[!] Persona loading failed: {e}")
 
 
-def parse_ai_flags(parts):
-    """
-    Parses flags from the command parts for AI interaction.
-
-    Recognized flags:
-      --read  / -r <file>  : Read input file
-      --write / -w <file>  : Write output file
-      --edit  / -e         : Open editor for prompt input
-
-    Returns:
-      (input_file, output_file, use_editor, prompt_text)
-    """
-    input_file = None
-    output_file = None
-    use_editor = False
-    indices_to_remove = {0}  # Always remove the @model token
-
-    # Parse --read / -r and --write / -w (each takes one argument)
-    for flag, short, attr_name in [
-        ("--read", "-r", "read"),
-        ("--write", "-w", "write"),
-    ]:
-        kw = flag if flag in parts else (short if short in parts else None)
-        if kw:
-            idx = parts.index(kw)
-            if idx + 1 < len(parts):
-                if attr_name == "read":
-                    input_file = parts[idx + 1]
-                else:
-                    output_file = parts[idx + 1]
-                indices_to_remove.update({idx, idx + 1})
-            else:
-                print(f"[!] Flag '{kw}' requires a filename argument.")
-                return None, None, False, None
-
-    # Parse --edit / -e (no argument)
-    for edit_flag in ("--edit", "-e"):
-        if edit_flag in parts:
-            idx = parts.index(edit_flag)
-            use_editor = True
-            indices_to_remove.add(idx)
-
-    # Build prompt from remaining parts
-    prompt_text = " ".join(
-        [parts[i] for i in range(len(parts)) if i not in indices_to_remove]
-    )
-
-    return input_file, output_file, use_editor, prompt_text
-
-
 def handle_ai_interaction(parts):
     """
     Handles a single AI interaction command.
 
-    Supports:
-      @model <prompt>                  : Direct prompt
-      @model -e                        : Editor mode
-      @model -e -r input.txt           : Editor + file read
-      @model -e -w output.txt          : Editor + file write
-      @model <prompt> -r in -w out     : All flags combined
+    Supports Pattern B parsing:
+      @model <context> -m <msg> -r file1.py -r file2.py -w out.txt -e
+
+    Prompt construction priority:
+      a1 (context) -> a2 (-m message) -> e (editor) -> Files (-r)
     """
     target_key = parts[0].lower().replace("@", "")
     engine = engines[target_key]
 
-    # --- Parse all flags ---
-    parsed = parse_ai_flags(parts)
-    input_file, output_file, use_editor, prompt_main = parsed
-
-    # If flag parsing returned None for prompt, there was an error
-    if prompt_main is None:
+    # --- Step 1: Parse CLI input into structured data ---
+    parsed = parse_cli_input(parts)
+    if parsed is None:
         return
 
-    # --- Editor mode ---
-    if use_editor:
+    # --- Step 2: Editor mode ---
+    editor_content = None
+    if parsed.use_editor:
         editor_content = open_editor_for_prompt()
         if editor_content is None:
             return
 
-        if prompt_main.strip():
-            prompt_main = prompt_main.strip() + "\n\n" + editor_content
-        else:
-            prompt_main = editor_content
-
-    # --- Attach input file ---
-    if input_file:
-        try:
-            filepath = secure_resolve_path(input_file, "data")
-            with open(filepath, "r", encoding="utf-8") as f:
-                file_content = f.read()
-            prompt_main += f"\n\n[Attached File]:\n{file_content}"
-        except Exception as e:
-            print(f"[!] Error reading input file: {e}")
-            return
-
-    # --- Validate prompt ---
-    if not prompt_main.strip():
-        print("[!] No prompt to send. Provide text, use -e, or use -r.")
+    # --- Step 3: Build the prompt in fixed priority order ---
+    try:
+        prompt_main = build_ai_prompt(parsed, editor_content)
+    except AIError as e:
+        print(f"[!] {e}")
         return
 
-    # --- Send to AI ---
+    # --- Step 4: Validate prompt ---
+    if not prompt_main.strip():
+        print("[!] No prompt to send. Provide text, use -e, -m, or -r.")
+        return
+
+    # --- Step 5: Send to AI ---
     logger.info(f"@User ({engine.name}): {prompt_main}")
     print(f"[*] {engine.name} is thinking...", end="\r", flush=True)
     logger.info(f"[*] {engine.name} is thinking...")
@@ -651,12 +760,12 @@ def handle_ai_interaction(parts):
         logger.info(f"@{engine.name}: {result}")
         logger.info("-" * 40)
 
-        if output_file:
+        if parsed.write_file:
             final_out = extract_code_block(result)
-            out_path = secure_resolve_path(output_file, "data")
+            out_path = secure_resolve_path(parsed.write_file, "data")
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(final_out.strip())
-            print(f"[*] Result saved to '{output_file}'.")
+            print(f"[*] Result saved to '{parsed.write_file}'.")
         else:
             print(f"\n--- {engine.name} ---\n{result}\n")
 
