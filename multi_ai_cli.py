@@ -3,6 +3,7 @@ import sys
 import argparse
 import configparser
 import logging
+import shlex
 import shutil
 import tempfile
 import subprocess
@@ -17,7 +18,7 @@ from anthropic import Anthropic
 # ==================================================
 # Constants & Configuration
 # ==================================================
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_MAX_HISTORY_TURNS = 30
@@ -26,7 +27,7 @@ DEFAULT_MAX_HISTORY_TURNS = 30
 # 1. Argparse & Config Management
 # --------------------------------------------------
 parser = argparse.ArgumentParser(
-    description=f"Multi-AI CLI v{VERSION} (Editor Support Update)"
+    description=f"Multi-AI CLI v{VERSION} (Sequence Command Update)"
 )
 parser.add_argument(
     "--no-log",
@@ -624,7 +625,7 @@ def build_ai_prompt(parsed, editor_content=None):
 def print_welcome_banner():
     """Displays the startup banner with model info and available commands."""
     print("==================================================")
-    print(f"  Multi-AI CLI v{VERSION} (Editor Support)")
+    print(f"  Multi-AI CLI v{VERSION} (Sequence Command Support)")
     for name, eng in engines.items():
         print(f"  {eng.name:<6}: {eng.model_name}")
     print("==================================================")
@@ -634,8 +635,9 @@ def print_welcome_banner():
         else "Enabled (tail -f logs/chat.log)"
     )
     print(f"[*] Logging: {log_status}")
-    print("[*] Commands: @model, @efficient, @scrub, exit")
+    print("[*] Commands: @model, @efficient, @scrub, @sequence, exit")
     print("[*] Editor:   @model -e | --edit  (uses $EDITOR or vi)")
+    print("[*] Sequence: @sequence -e  (multi-line command via editor)")
     print("[*] Flags:    -r <file> (read, repeatable)  -w <file> (write)")
     print("[*]           -m \"<msg>\" (message flag, wrap in quotes)")
     print()
@@ -649,7 +651,8 @@ def clear_thinking_line():
 
 def extract_code_block(text):
     """
-    If the response contains a fenced code block, extract its contents.
+    If the response contains fenced code blocks, extract their contents.
+    If multiple blocks exist, concatenates all of them.
     Used when writing output to a file with -w flag.
     """
     if "```" not in text:
@@ -657,17 +660,28 @@ def extract_code_block(text):
 
     try:
         blocks = text.split("```")
-        if len(blocks) >= 3:
-            block_lines = blocks[1].splitlines()
-            # Skip the language identifier line (e.g., ```python)
-            if block_lines and len(block_lines[0].strip()) < 15:
-                return "\n".join(block_lines[1:])
+        extracted_codes = []
+        
+        # 奇数番目 (1, 3, 5...) がコードブロック本体
+        for i in range(1, len(blocks), 2):
+            block_lines = blocks[i].splitlines()
+            if not block_lines:
+                continue
+                
+            # Skip the language identifier line (e.g., python, bash)
+            if len(block_lines[0].strip()) < 15 and " " not in block_lines[0].strip():
+                extracted_codes.append("\n".join(block_lines[1:]))
             else:
-                return "\n".join(block_lines)
-    except Exception:
-        pass
+                extracted_codes.append("\n".join(block_lines))
+                
+        if extracted_codes:
+            # 複数のブロックがあった場合、間に空行を挟んで結合する
+            return "\n\n".join(extracted_codes)
+            
+    except Exception as e:
+        logger.warning(f"Failed to extract code blocks: {e}")
+        
     return text
-
 
 def handle_scrub(parts):
     """Handles the @scrub / @flush command."""
@@ -775,6 +789,86 @@ def handle_ai_interaction(parts):
 
 
 # --------------------------------------------------
+# 5.6 @sequence Command Handler (NEW in v0.7.0)
+# --------------------------------------------------
+def handle_sequence(parts):
+    """
+    Handles the @sequence command.
+
+    Usage: @sequence -e | @sequence --edit
+
+    Flow:
+      1. Verify that -e / --edit flag is present (required).
+      2. Open the editor via open_editor_for_prompt().
+      3. Normalize the multi-line editor content into a single line
+         by replacing newlines with spaces.
+      4. Tokenize the normalized line using shlex (to preserve quoted strings).
+      5. Validate that the resulting command targets a known AI engine.
+      6. Dispatch to handle_ai_interaction() via the standard pipeline.
+
+    Example editor input:
+      @gemini "Fix Code"
+        -r code.py
+        -w new_code.py
+
+    Normalized to:
+      @gemini "Fix Code" -r code.py -w new_code.py
+    """
+    # --- Step 1: Require -e flag ---
+    has_edit_flag = any(token in ("-e", "--edit") for token in parts[1:])
+    if not has_edit_flag:
+        print("[!] Usage: @sequence -e")
+        print("    The -e (--edit) flag is required to open the editor.")
+        return
+
+    # --- Step 2: Open editor to capture multi-line command ---
+    logger.info("[*] @sequence: Opening editor for multi-line command input.")
+    editor_content = open_editor_for_prompt()
+    if editor_content is None:
+        # User cancelled or editor returned empty
+        return
+
+    # --- Step 3: Normalize newlines to spaces ---
+    normalized = editor_content.replace('\n', ' ').strip()
+    logger.info(f"[*] @sequence normalized command: {normalized}")
+
+    if not normalized.strip():
+        print("[!] Sequence command is empty after normalization. Cancelled.")
+        return
+
+    # --- Step 4: Tokenize using shlex to respect quoted strings ---
+    try:
+        seq_parts = shlex.split(normalized)
+    except ValueError as e:
+        print(f"[!] Sequence parse error (mismatched quotes?): {e}")
+        logger.error(f"@sequence shlex parse error: {e}")
+        return
+
+    if not seq_parts:
+        print("[!] Sequence command is empty after tokenization. Cancelled.")
+        return
+
+    # --- Step 5: Validate the command targets a known engine ---
+    seq_cmd = seq_parts[0].lower().replace("@", "")
+    if seq_cmd not in engines:
+        print(f"[!] Unknown model in sequence command: '{seq_parts[0]}'")
+        print(
+            f"    Available models: {', '.join('@' + k for k in engines.keys())}"
+        )
+        logger.warning(f"@sequence: unknown model '{seq_parts[0]}'")
+        return
+
+    # Ensure the first token has the @ prefix for handle_ai_interaction
+    if not seq_parts[0].startswith("@"):
+        seq_parts[0] = "@" + seq_parts[0]
+
+    # --- Step 6: Dispatch to existing handler ---
+    print(f"[*] @sequence executing: {' '.join(seq_parts)}")
+    logger.info(f"[*] @sequence dispatching: {' '.join(seq_parts)}")
+    handle_ai_interaction(seq_parts)
+
+
+# --------------------------------------------------
 # 6. Main Event Loop
 # --------------------------------------------------
 print_welcome_banner()
@@ -800,6 +894,10 @@ while True:
             handle_efficient(parts)
             continue
 
+        if cmd == "@sequence":
+            handle_sequence(parts)
+            continue
+
         target_key = cmd.replace("@", "")
         if target_key in engines:
             handle_ai_interaction(parts)
@@ -809,7 +907,7 @@ while True:
         print(f"[!] Unknown command: '{cmd}'")
         print(
             f"    Available: {', '.join('@' + k for k in engines.keys())}, "
-            f"@efficient, @scrub, exit"
+            f"@efficient, @scrub, @sequence, exit"
         )
 
     except KeyboardInterrupt:
