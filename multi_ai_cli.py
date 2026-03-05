@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import argparse
 import configparser
 import logging
@@ -20,7 +21,7 @@ from anthropic import Anthropic
 # ==================================================
 # Constants & Configuration
 # ==================================================
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_MAX_HISTORY_TURNS = 30
@@ -34,7 +35,7 @@ _console_lock = threading.Lock()
 # 1. Argparse & Config Management
 # --------------------------------------------------
 parser = argparse.ArgumentParser(
-    description=f"Multi-AI CLI v{VERSION} (Parallel Execution Update)"
+    description=f"Multi-AI CLI v{VERSION} (Raw-by-Default Write Mode)"
 )
 parser.add_argument(
     "--no-log",
@@ -61,7 +62,6 @@ config.read(INI_FILE, encoding="utf-8-sig")
 # --------------------------------------------------
 class AIError(Exception):
     """Custom exception for AI service and processing errors."""
-
     pass
 
 
@@ -456,8 +456,14 @@ except Exception as e:
 
 
 # --------------------------------------------------
-# 5. CLI Input Parsing & Prompt Assembly (Refactored)
+# 5. CLI Input Parsing & Prompt Assembly (Refactored for v0.9.1)
 # --------------------------------------------------
+
+# ---- Write-mode constants ----
+WRITE_MODE_RAW = "raw"      # Save full AI response as-is (new default)
+WRITE_MODE_CODE = "code"    # Extract fenced code blocks only
+
+
 class ParsedInput:
     """
     Data class holding the result of CLI input parsing.
@@ -466,7 +472,8 @@ class ParsedInput:
         a1          : Context / title text (bare words, no flags)
         message     : Text provided via -m flag
         read_files  : List of filenames provided via repeated -r flags
-        write_file  : Single output filename provided via -w flag
+        write_file  : Single output filename provided via -w / -w:code / -w:raw
+        write_mode  : One of WRITE_MODE_RAW or WRITE_MODE_CODE
         use_editor  : Whether -e / --edit was specified
     """
 
@@ -475,19 +482,67 @@ class ParsedInput:
         self.message = ""
         self.read_files = []
         self.write_file = None
+        self.write_mode = WRITE_MODE_RAW   # v0.9.1: raw by default
         self.use_editor = False
+
+
+def _parse_write_flag(token):
+    """
+    Parse a write flag token and return (modifier, is_write_flag).
+
+    Supported forms:
+      -w          -> (WRITE_MODE_RAW, True)
+      --write     -> (WRITE_MODE_RAW, True)
+      -w:raw      -> (WRITE_MODE_RAW, True)
+      --write:raw -> (WRITE_MODE_RAW, True)
+      -w:code     -> (WRITE_MODE_CODE, True)
+      --write:code-> (WRITE_MODE_CODE, True)
+      anything else -> (None, False)
+
+    Parameters
+    ----------
+    token : str
+        A single CLI token to examine.
+
+    Returns
+    -------
+    tuple[str | None, bool]
+        (write_mode, is_write_flag)
+    """
+    # Regex: match -w or --write, optionally followed by :modifier
+    pattern = r'^(?:-w|--write)(?::(\w+))?$'
+    m = re.match(pattern, token)
+    if not m:
+        return None, False
+
+    modifier = m.group(1)  # None if no colon modifier present
+
+    if modifier is None:
+        # Plain -w / --write -> raw by default (v0.9.1 behavior)
+        return WRITE_MODE_RAW, True
+    elif modifier == "raw":
+        return WRITE_MODE_RAW, True
+    elif modifier == "code":
+        return WRITE_MODE_CODE, True
+    else:
+        # Unknown modifier
+        print(f"[!] Unknown write modifier ':{modifier}'. Valid: :raw, :code")
+        return None, False
 
 
 def parse_cli_input(parts):
     """
     Parse the token list produced by splitting the user's input line.
 
-    Pattern B rules
-    ----------------
+    Pattern B rules (v0.9.1 update)
+    --------------------------------
     * ``parts[0]`` is always the ``@model`` token and is consumed silently.
     * ``-r <file>`` / ``--read <file>`` can appear **multiple times**.
       Each occurrence appends one filename to ``read_files``.
-    * ``-w <file>`` / ``--write <file>`` appears **at most once**.
+    * ``-w <file>`` / ``-w:code <file>`` / ``-w:raw <file>`` appears
+      **at most once**.  The colon modifier selects the write mode:
+        - ``-w`` or ``-w:raw``  -> Save full AI response (raw). [DEFAULT]
+        - ``-w:code``           -> Extract fenced code blocks only.
       If repeated, the last value wins (with a warning).
     * ``-m <text>`` / ``--message <text>`` consumes the **single next token**
       as a message string. If repeated, values are space-joined.
@@ -516,17 +571,22 @@ def parse_cli_input(parts):
             i += 2
             continue
 
-        # --- -w / --write (single) ---
-        if token in ("-w", "--write"):
+        # --- -w / -w:code / -w:raw / --write / --write:code / --write:raw ---
+        write_mode, is_write = _parse_write_flag(token)
+        if is_write:
+            if write_mode is None:
+                # Unknown modifier — error already printed by _parse_write_flag
+                return None
             if i + 1 >= len(parts):
                 print(f"[!] Flag '{token}' requires a filename argument.")
                 return None
             if parsed.write_file is not None:
                 print(
-                    f"[!] Warning: -w specified more than once. "
+                    f"[!] Warning: write flag specified more than once. "
                     f"Overwriting '{parsed.write_file}' with '{parts[i + 1]}'."
                 )
             parsed.write_file = parts[i + 1]
+            parsed.write_mode = write_mode
             indices_to_skip.update({i, i + 1})
             i += 2
             continue
@@ -637,7 +697,7 @@ def safe_print(*args_print, **kwargs):
 def print_welcome_banner():
     """Displays the startup banner with model info and available commands."""
     print("==================================================")
-    print(f"  Multi-AI CLI v{VERSION} (Parallel Execution Support)")
+    print(f"  Multi-AI CLI v{VERSION} (Raw-by-Default Write Mode)")
     for name, eng in engines.items():
         print(f"  {eng.name:<6}: {eng.model_name}")
     print("==================================================")
@@ -652,8 +712,10 @@ def print_welcome_banner():
     print("[*] Sequence: @sequence -e  (multi-step pipeline via editor)")
     print("[*]           Use '->' to chain steps in editor mode")
     print("[*]           Use '[ cmd1 || cmd2 ]' for parallel execution")
-    print("[*] Flags:    -r <file> (read, repeatable)  -w <file> (write)")
-    print("[*]           -m \"<msg>\" (message flag, wrap in quotes)")
+    print("[*] Write:    -w <file>       (save full response — raw, default)")
+    print("[*]           -w:code <file>  (extract code blocks only)")
+    print("[*]           -w:raw <file>   (explicit raw, same as -w)")
+    print("[*] Flags:    -r <file> (read, repeatable)  -m \"<msg>\" (message)")
     print()
 
 
@@ -665,6 +727,24 @@ def clear_thinking_line():
 
 
 def extract_code_block(text):
+    """
+    Extracts all fenced code blocks from the given text and concatenates them.
+
+    Used by -w:code mode to strip explanatory prose and return only code.
+
+    If the text contains no fenced code blocks (``` ... ```), returns
+    the original text unchanged as a fallback.
+
+    Parameters
+    ----------
+    text : str
+        The full AI response text, potentially containing fenced code blocks.
+
+    Returns
+    -------
+    str
+        Concatenated code block contents, or the original text if no blocks found.
+    """
     if "```" not in text:
         return text
 
@@ -744,8 +824,15 @@ def handle_ai_interaction(parts):
     """
     Handles a single AI interaction command.
 
-    Supports Pattern B parsing:
+    Supports Pattern B parsing with v0.9.1 write-mode modifiers:
       @model <context> -m <msg> -r file1.py -r file2.py -w out.txt -e
+      @model "prompt" -w:code script.py
+      @model "prompt" -w:raw  notes.md
+
+    Write behavior (v0.9.1 — "Raw by Default"):
+      -w <file>       : Saves FULL AI response exactly as received (raw).
+      -w:raw <file>   : Same as -w (explicit alias).
+      -w:code <file>  : Extracts fenced code blocks only, strips prose.
 
     Prompt construction priority:
       a1 (context) -> a2 (-m message) -> e (editor) -> Files (-r)
@@ -797,13 +884,28 @@ def handle_ai_interaction(parts):
         logger.info("-" * 40)
 
         if parsed.write_file:
-            final_out = extract_code_block(result)
+            # --- v0.9.1: Write mode dispatch ---
+            if parsed.write_mode == WRITE_MODE_CODE:
+                # -w:code — extract fenced code blocks only
+                final_out = extract_code_block(result)
+                mode_label = "code-extracted"
+            else:
+                # -w or -w:raw — save full response as-is (raw)
+                final_out = result
+                mode_label = "raw"
+
             out_path = secure_resolve_path(parsed.write_file, "data")
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(final_out.strip())
                 f.flush()
                 os.fsync(f.fileno())
-            safe_print(f"[*] Result saved to '{parsed.write_file}'.")
+            safe_print(
+                f"[*] Result saved to '{parsed.write_file}' (mode: {mode_label})."
+            )
+            logger.info(
+                f"[*] File written: '{parsed.write_file}' "
+                f"(mode: {mode_label}, chars: {len(final_out.strip())})"
+            )
         else:
             safe_print(f"\n--- {engine.name} ---\n{result}\n")
 
@@ -813,6 +915,7 @@ def handle_ai_interaction(parts):
         clear_thinking_line()
         safe_print(f"[!] AI Engine Error: {e}")
         return False
+
 
 # --------------------------------------------------
 # 5.6 @sequence Command Handler (Refactored in v0.9.0)
@@ -1260,8 +1363,10 @@ def handle_sequence(parts):
         if is_parallel:
             # --- Parallel Execution Block ---
             task_summaries = [' '.join(t) for t in step_tasks]
-            print(f"[*] Executing Step {idx}/{total} "
-                  f"[PARALLEL: {num_tasks} tasks]...")
+            print(
+                f"[*] Executing Step {idx}/{total} "
+                f"[PARALLEL: {num_tasks} tasks]..."
+            )
             for t_idx, summary in enumerate(task_summaries, start=1):
                 print(f"    Task {t_idx}: {summary}")
             logger.info(
