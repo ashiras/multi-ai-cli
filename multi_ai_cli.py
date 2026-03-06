@@ -32,7 +32,7 @@ except ImportError:
 # ==================================================
 # Constants & Configuration
 # ==================================================
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_MAX_HISTORY_TURNS = 30
@@ -656,6 +656,13 @@ try:
         api_key=get_api_key("grok_api_key", "GROK_API_KEY"),
         base_url="https://api.x.ai/v1",
     )
+    local_base = config.get("LOCAL", "base_url", fallback="http://localhost:11434/v1")
+    local_model = config.get("LOCAL", "model", fallback="qwen2.5-coder:14b")
+    local_key = config.get("LOCAL", "api_key", fallback="ollama").strip() or "ollama"
+    client_local = OpenAI(
+        api_key=local_key,
+        base_url=local_base,
+    )
 
     engines = {
         "gemini": GeminiEngine(
@@ -678,6 +685,12 @@ try:
             config.get("MODELS", "grok_model", fallback="grok-4-latest"),
             client_grok,
             max_tokens_key="grok_max_tokens",
+        ),
+        "local": OpenAIEngine(
+            "Local",
+            local_model,
+            client_local,
+            max_tokens_key="local_max_tokens"
         ),
     }
 
