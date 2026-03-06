@@ -1,0 +1,17 @@
+[tool.ruff]
+# Max line length (88 is the standard Black/Ruff line length for Python)
+line-length = 88
+
+# Exclude specific directories or files from being linted/formatted
+# exclude = ["tests/", "docs/", "build"]
+
+[tool.ruff.lint]
+# Specify the linting rules to enable
+select = [
+    "E",   # pycodestyle (Standard style errors)
+    "F",   # Pyflakes (Logical errors, e.g., unused variables/imports)
+    "I",   # isort (Automatic import sorting)
+    "UP",  # pyupgrade (Automatically upgrade syntax for newer Python versions)
+]
+# Specify any rules you want to ignore (leave empty to enforce all selected)
+ignore = ["E501"]

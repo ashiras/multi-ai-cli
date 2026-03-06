@@ -1,20 +1,54 @@
+# ==============================================================================
+# Multi-AI CLI Configuration File
+# ==============================================================================
+
 [API_KEYS]
-GEMINI_API_KEY = 
-OPENAI_API_KEY = 
-anthropic_api_key = 
-grok_api_key = 
+# Enter your API keys here.
+# Alternatively, you can set them as environment variables (e.g., export GEMINI_API_KEY="...").
+# Environment variables will automatically override these values.
+GEMINI_API_KEY = ...
+OPENAI_API_KEY = ...
+anthropic_api_key = ...
+grok_api_key = ...
 
 [MODELS]
+# --- Target AI Models ---
+# Specify the exact model string to use for each AI provider.
 gemini_model = gemini-2.5-flash
 gpt_model = gpt-4o-mini
 claude_model = claude-opus-4-6
 grok_model = grok-4-latest
 
+# --- Conversation Memory ---
+# Maximum number of conversation turns (user + assistant pairs) to keep in history.
+# Older messages will be truncated to save tokens and prevent context bloat.
+max_history_turns = 30
+
+# --- Token Limits (Auto-continue Triggers) ---
+# The maximum output tokens allowed per single API request.
+# When the AI hits this limit, the CLI will automatically trigger the continuation loop.
+openai_max_tokens = 4096
+grok_max_tokens = 8192
+claude_max_tokens = 8192
+gemini_max_output_tokens = 8192
+
+# --- Auto-continue Tuning ---
+# auto_continue_max_rounds: Max number of times the CLI will auto-request a continuation (prevents infinite loops).
+# auto_continue_tail_chars: Number of characters from the end of the previous chunk to send as an anchor.
+auto_continue_max_rounds = 5
+auto_continue_tail_chars = 1200
+
 [Paths]
+# --- Directory Paths ---
+# Directories for storing system prompts (@efficient) and output data (-w). 
+# Paths are relative to the CLI script location.
 work_efficient = prompts
-work_data = data
+work_data = work_data
 
 [logging]
+# --- Application Logging ---
+# enabled: Set to false to disable logging entirely (stealth mode).
+# log_level: DEBUG, INFO, WARNING, ERROR, or CRITICAL.
 enabled = true
 log_dir = logs
 base_filename = chat.log

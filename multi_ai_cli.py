@@ -1,27 +1,27 @@
-import os
-import sys
-import re
 import argparse
 import configparser
 import logging
+import os
+import re
 import shlex
 import shutil
-import tempfile
 import subprocess
+import sys
+import tempfile
 import threading
+from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from logging.handlers import RotatingFileHandler
-from abc import ABC, abstractmethod
 
 # AI SDKs
 import google.generativeai as genai
-from openai import OpenAI
 from anthropic import Anthropic
+from openai import OpenAI
 
 # ==================================================
 # Constants & Configuration
 # ==================================================
-VERSION = "0.9.1"
+VERSION = "0.9.2"
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_MAX_HISTORY_TURNS = 30
@@ -42,9 +42,7 @@ parser.add_argument(
     action="store_true",
     help="Disable logging for this session (Stealth Mode)",
 )
-parser.add_argument(
-    "--version", action="version", version=f"Multi-AI CLI v{VERSION}"
-)
+parser.add_argument("--version", action="version", version=f"Multi-AI CLI v{VERSION}")
 args = parser.parse_args()
 
 INI_FILE = "multi_ai_cli.ini"
@@ -62,6 +60,7 @@ config.read(INI_FILE, encoding="utf-8-sig")
 # --------------------------------------------------
 class AIError(Exception):
     """Custom exception for AI service and processing errors."""
+
     pass
 
 
@@ -84,9 +83,7 @@ def setup_logger():
         try:
             os.makedirs(log_dir, exist_ok=True)
         except OSError as e:
-            print(
-                f"[!] Logging Error: Could not create log directory '{log_dir}': {e}"
-            )
+            print(f"[!] Logging Error: Could not create log directory '{log_dir}': {e}")
             sys.exit(1)
 
         base_filename = config.get("logging", "base_filename", fallback="chat.log")
@@ -189,13 +186,11 @@ def open_editor_for_prompt():
         result = subprocess.run([editor, tmp_path])
 
         if result.returncode != 0:
-            logger.warning(
-                f"Editor exited with non-zero status: {result.returncode}"
-            )
+            logger.warning(f"Editor exited with non-zero status: {result.returncode}")
             print(f"[!] Editor exited with error (code {result.returncode}).")
             return None
 
-        with open(tmp_path, "r", encoding="utf-8") as f:
+        with open(tmp_path, encoding="utf-8") as f:
             raw_content = f.read()
 
         lines = raw_content.splitlines()
@@ -237,10 +232,8 @@ def open_editor_for_prompt():
         return content
 
     except FileNotFoundError:
-        print(
-            f"[!] Editor '{editor}' not found. Set $EDITOR to your preferred editor."
-        )
-        print(f"    Example: export EDITOR=nano")
+        print(f"[!] Editor '{editor}' not found. Set $EDITOR to your preferred editor.")
+        print("    Example: export EDITOR=nano")
         logger.error(f"Editor not found: {editor}")
         return None
     except Exception as e:
@@ -295,74 +288,256 @@ class AIEngine(ABC):
         """Sets the system prompt and resets the history."""
         self.system_prompt = prompt_text
         self.history = []
+        self._after_persona_loaded()
         logger.info(f"[*] System: {self.name} persona loaded from '{filename}'.")
 
+    def _after_persona_loaded(self):
+        pass
 
+
+# ==================================================
+# Auto-continue helpers (shared)
+# ==================================================
+def _get_cfg_int(section: str, key: str, fallback: int) -> int:
+    """Read an int config value safely with a fallback."""
+    try:
+        return config.getint(section, key, fallback=fallback)
+    except Exception:
+        return fallback
+
+
+def _make_continue_prompt(tail: str) -> str:
+    """
+    Build a continuation instruction anchored by the tail of the previous output.
+    Using a fenced block avoids quote/escape issues and improves alignment.
+    """
+    return (
+        "The output was truncated due to an output limit.\n"
+        "Continue EXACTLY from where you stopped.\n"
+        "Rules:\n"
+        "- Do NOT repeat any earlier content.\n"
+        "- Do NOT add greetings, headings, apologies, or explanations.\n"
+        "- Output ONLY the continuation.\n\n"
+        "Here is the tail of your last output for alignment:\n"
+        "```tail\n"
+        f"{tail}\n"
+        "```\n"
+    )
+
+
+def _tail_of(text: str, n: int) -> str:
+    """Return the last n characters of text (or the whole text if shorter)."""
+    if not text:
+        return ""
+    return text[-n:] if len(text) > n else text
+
+
+# ==================================================
+# Engines (fixed)
+# ==================================================
 class GeminiEngine(AIEngine):
     """Google Gemini specific implementation."""
 
     def __init__(self, name, model_name):
         super().__init__(name, model_name)
+        self.max_output_tokens = _get_cfg_int(
+            "MODELS", "gemini_max_output_tokens", fallback=8192
+        )
         self.rebuild_model()
 
     def rebuild_model(self):
         instr = self.system_prompt if self.system_prompt else None
-        self.model = genai.GenerativeModel(
-            self.model_name, system_instruction=instr
-        )
-        self.chat = self.model.start_chat(history=[])
-
-    def load_persona(self, prompt_text, filename):
-        super().load_persona(prompt_text, filename)
-        self.rebuild_model()
+        self.model = genai.GenerativeModel(self.model_name, system_instruction=instr)
 
     def scrub(self):
         super().scrub()
-        self.chat = self.model.start_chat(history=[])
+
+    def _after_persona_loaded(self):
+        self.rebuild_model()
+
+    def _to_gemini_part(self, content: str):
+        """Convert plain text to a Gemini 'parts' entry with better SDK compatibility."""
+        return [{"text": content}]
+
+    def _hit_output_limit(self, response, answer_chunk: str) -> bool:
+        """Detect whether the response was truncated by output limits (with fallbacks)."""
+        finish_reason = None
+        try:
+            finish_reason = response.candidates[0].finish_reason
+        except Exception:
+            finish_reason = None
+
+        finish_name = getattr(finish_reason, "name", "")
+        if (finish_name == "MAX_TOKENS") or (finish_reason == 2):
+            return True
+
+        # Fallback heuristics when finish_reason is unavailable/unstable.
+        if answer_chunk.count("```") % 2 == 1:
+            return True
+        if answer_chunk.rstrip().endswith((",", ":", "(", "[", "{")):
+            return True
+
+        return False
 
     def call(self, prompt):
-        try:
-            response = self.chat.send_message(prompt)
-            logger.debug(
-                f"[DEBUG] Gemini response received. Char count: {len(response.text)}"
+        self._trim_history()
+
+        # Build stateless request history for this call.
+        current_history = []
+        for msg in self.history:
+            role = "user" if msg["role"] == "user" else "model"
+            current_history.append(
+                {"role": role, "parts": self._to_gemini_part(msg["content"])}
             )
-            return response.text
-        except Exception as e:
-            logger.error(f"Gemini Error: {e}")
-            raise AIError(f"Gemini error: {e}")
+
+        current_history.append({"role": "user", "parts": self._to_gemini_part(prompt)})
+
+        full_answer = ""
+
+        max_rounds = _get_cfg_int("MODELS", "auto_continue_max_rounds", fallback=5)
+        tail_chars = _get_cfg_int("MODELS", "auto_continue_tail_chars", fallback=1200)
+
+        gen_config = genai.types.GenerationConfig(
+            max_output_tokens=self.max_output_tokens
+        )
+
+        for round_idx in range(1, max_rounds + 1):
+            try:
+                response = self.model.generate_content(
+                    current_history, generation_config=gen_config
+                )
+                answer_chunk = getattr(response, "text", "") or ""
+                full_answer += answer_chunk
+
+                logger.debug(f"[DEBUG] Gemini chunk received. round: {round_idx}")
+
+                if self._hit_output_limit(response, answer_chunk):
+                    with _console_lock:
+                        print(
+                            f"[*] Gemini is continuing (hit max_output_tokens, round {round_idx}/{max_rounds})...",
+                            end="\r",
+                            flush=True,
+                        )
+
+                    # Append the model chunk so Gemini can continue from it.
+                    current_history.append(
+                        {"role": "model", "parts": self._to_gemini_part(answer_chunk)}
+                    )
+
+                    # Anchor continuation with a tail of the full accumulated answer.
+                    eff_tail_chars = max(
+                        300, int(tail_chars * (0.8 ** (round_idx - 1)))
+                    )
+                    tail = _tail_of(full_answer, eff_tail_chars)
+
+                    continue_prompt = _make_continue_prompt(tail)
+                    current_history.append(
+                        {"role": "user", "parts": self._to_gemini_part(continue_prompt)}
+                    )
+                    continue
+
+                break
+
+            except Exception as e:
+                logger.error(f"Gemini Error: {e}")
+                raise AIError(f"Gemini error: {e}")
+
+        else:
+            logger.warning(
+                "[!] Gemini hit max auto-continue rounds. Response might be truncated."
+            )
+            full_answer += "\n\n[TRUNCATED: auto-continue limit reached]\n"
+
+        # Store as a single clean turn in shared history.
+        self.history.append({"role": "user", "content": prompt})
+        self.history.append({"role": "assistant", "content": full_answer})
+        self._trim_history()
+
+        return full_answer
 
 
 class OpenAIEngine(AIEngine):
     """OpenAI-compatible implementation (GPT, Grok)."""
 
-    def __init__(self, name, model_name, client):
+    def __init__(self, name, model_name, client, max_tokens_key="openai_max_tokens"):
         super().__init__(name, model_name)
         self.client = client
+        # Read the specific limit key (e.g. openai_max_tokens or grok_max_tokens)
+        self.max_tokens = _get_cfg_int("MODELS", max_tokens_key, fallback=4096)
+
+    def _create_completion(self, messages):
+        """Call API with max_tokens, fallback to max_completion_tokens if needed."""
+        try:
+            return self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                max_tokens=self.max_tokens,
+            )
+        except TypeError:
+            return self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                max_completion_tokens=self.max_tokens,
+            )
 
     def call(self, prompt):
         self._trim_history()
+
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         messages.extend(self.history)
         messages.append({"role": "user", "content": prompt})
 
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_name, messages=messages
-            )
-            answer = response.choices[0].message.content
-            logger.debug(
-                f"[DEBUG] {self.name} response received. Char count: {len(answer)}"
-            )
+        full_answer = ""
+        max_rounds = _get_cfg_int("MODELS", "auto_continue_max_rounds", fallback=5)
+        tail_chars = _get_cfg_int("MODELS", "auto_continue_tail_chars", fallback=1200)
 
-            self.history.append({"role": "user", "content": prompt})
-            self.history.append({"role": "assistant", "content": answer})
-            self._trim_history()
-            return answer
-        except Exception as e:
-            logger.error(f"{self.name} API Error: {e}")
-            raise AIError(f"{self.name} error: {e}")
+        for round_idx in range(1, max_rounds + 1):
+            try:
+                response = self._create_completion(messages)
+
+                choice = response.choices[0]
+                answer_chunk = choice.message.content or ""
+                finish_reason = getattr(choice, "finish_reason", None)
+
+                full_answer += answer_chunk
+                logger.debug(
+                    f"[DEBUG] {self.name} chunk received. finish_reason: {finish_reason}, round: {round_idx}"
+                )
+
+                if finish_reason == "length":
+                    with _console_lock:
+                        print(
+                            f"[*] {self.name} is continuing (hit length limit, round {round_idx}/{max_rounds})...",
+                            end="\r",
+                            flush=True,
+                        )
+
+                    messages.append({"role": "assistant", "content": answer_chunk})
+
+                    tail = _tail_of(full_answer, tail_chars)
+                    continue_prompt = _make_continue_prompt(tail)
+                    messages.append({"role": "user", "content": continue_prompt})
+                    continue
+
+                break
+
+            except Exception as e:
+                logger.error(f"{self.name} API Error: {e}")
+                raise AIError(f"{self.name} error: {e}")
+
+        else:
+            logger.warning(
+                f"[!] {self.name} hit max auto-continue rounds. Response might be truncated."
+            )
+            full_answer += "\n\n[TRUNCATED: auto-continue limit reached]\n"
+
+        self.history.append({"role": "user", "content": prompt})
+        self.history.append({"role": "assistant", "content": full_answer})
+        self._trim_history()
+
+        return full_answer
 
 
 class ClaudeEngine(AIEngine):
@@ -371,29 +546,69 @@ class ClaudeEngine(AIEngine):
     def __init__(self, name, model_name, client):
         super().__init__(name, model_name)
         self.client = client
-        self.max_tokens = config.getint("MODELS", "claude_max_tokens", fallback=8192)
+        self.max_tokens = _get_cfg_int("MODELS", "claude_max_tokens", fallback=8192)
 
     def call(self, prompt):
         self._trim_history()
-        try:
-            response = self.client.messages.create(
-                model=self.model_name,
-                max_tokens=self.max_tokens,
-                system=self.system_prompt if self.system_prompt else "",
-                messages=self.history + [{"role": "user", "content": prompt}],
-            )
-            answer = response.content[0].text
-            logger.debug(
-                f"[DEBUG] Claude response received. Char count: {len(answer)}"
-            )
 
-            self.history.append({"role": "user", "content": prompt})
-            self.history.append({"role": "assistant", "content": answer})
-            self._trim_history()
-            return answer
-        except Exception as e:
-            logger.error(f"Claude API Error: {e}")
-            raise AIError(f"Claude error: {e}")
+        messages = list(self.history) + [{"role": "user", "content": prompt}]
+        full_answer = ""
+
+        max_rounds = _get_cfg_int("MODELS", "auto_continue_max_rounds", fallback=5)
+        tail_chars = _get_cfg_int("MODELS", "auto_continue_tail_chars", fallback=1200)
+
+        for round_idx in range(1, max_rounds + 1):
+            try:
+                response = self.client.messages.create(
+                    model=self.model_name,
+                    max_tokens=self.max_tokens,
+                    system=self.system_prompt if self.system_prompt else "",
+                    messages=messages,
+                )
+
+                answer_chunk = ""
+                if getattr(response, "content", None):
+                    answer_chunk = getattr(response.content[0], "text", "") or ""
+
+                stop_reason = getattr(response, "stop_reason", None)
+
+                full_answer += answer_chunk
+                logger.debug(
+                    f"[DEBUG] Claude chunk received. stop_reason: {stop_reason}, round: {round_idx}"
+                )
+
+                if stop_reason == "max_tokens":
+                    with _console_lock:
+                        print(
+                            f"[*] Claude is continuing (hit max_tokens, round {round_idx}/{max_rounds})...",
+                            end="\r",
+                            flush=True,
+                        )
+
+                    messages.append({"role": "assistant", "content": answer_chunk})
+
+                    tail = _tail_of(full_answer, tail_chars)
+                    continue_prompt = _make_continue_prompt(tail)
+                    messages.append({"role": "user", "content": continue_prompt})
+                    continue
+
+                break
+
+            except Exception as e:
+                logger.error(f"Claude API Error: {e}")
+                raise AIError(f"Claude error: {e}")
+
+        else:
+            logger.warning(
+                "[!] Claude hit max auto-continue rounds. Response might be truncated."
+            )
+            full_answer += "\n\n[TRUNCATED: auto-continue limit reached]\n"
+
+        self.history.append({"role": "user", "content": prompt})
+        self.history.append({"role": "assistant", "content": full_answer})
+        self._trim_history()
+
+        return full_answer
 
 
 # --------------------------------------------------
@@ -430,18 +645,18 @@ try:
             "GPT",
             config.get("MODELS", "gpt_model", fallback="gpt-4o-mini"),
             client_gpt,
+            max_tokens_key="openai_max_tokens",
         ),
         "claude": ClaudeEngine(
             "Claude",
-            config.get(
-                "MODELS", "claude_model", fallback="claude-3-5-sonnet-20241022"
-            ),
+            config.get("MODELS", "claude_model", fallback="claude-3-5-sonnet-20241022"),
             client_claude,
         ),
         "grok": OpenAIEngine(
             "Grok",
             config.get("MODELS", "grok_model", fallback="grok-4-latest"),
             client_grok,
+            max_tokens_key="grok_max_tokens",
         ),
     }
 
@@ -454,14 +669,13 @@ except Exception as e:
     print(f"[!] Startup Error: {e}")
     sys.exit(1)
 
-
 # --------------------------------------------------
 # 5. CLI Input Parsing & Prompt Assembly (Refactored for v0.9.1)
 # --------------------------------------------------
 
 # ---- Write-mode constants ----
-WRITE_MODE_RAW = "raw"      # Save full AI response as-is (new default)
-WRITE_MODE_CODE = "code"    # Extract fenced code blocks only
+WRITE_MODE_RAW = "raw"  # Save full AI response as-is (new default)
+WRITE_MODE_CODE = "code"  # Extract fenced code blocks only
 
 
 class ParsedInput:
@@ -482,7 +696,7 @@ class ParsedInput:
         self.message = ""
         self.read_files = []
         self.write_file = None
-        self.write_mode = WRITE_MODE_RAW   # v0.9.1: raw by default
+        self.write_mode = WRITE_MODE_RAW  # v0.9.1: raw by default
         self.use_editor = False
 
 
@@ -510,7 +724,7 @@ def _parse_write_flag(token):
         (write_mode, is_write_flag)
     """
     # Regex: match -w or --write, optionally followed by :modifier
-    pattern = r'^(?:-w|--write)(?::(\w+))?$'
+    pattern = r"^(?:-w|--write)(?::(\w+))?$"
     m = re.match(pattern, token)
     if not m:
         return None, False
@@ -616,9 +830,7 @@ def parse_cli_input(parts):
         i += 1
 
     # Build a1 from remaining tokens
-    a1_tokens = [
-        parts[j] for j in range(len(parts)) if j not in indices_to_skip
-    ]
+    a1_tokens = [parts[j] for j in range(len(parts)) if j not in indices_to_skip]
     parsed.a1 = " ".join(a1_tokens)
 
     return parsed
@@ -668,7 +880,7 @@ def build_ai_prompt(parsed, editor_content=None):
         for filename in parsed.read_files:
             try:
                 filepath = secure_resolve_path(filename, "data")
-                with open(filepath, "r", encoding="utf-8") as f:
+                with open(filepath, encoding="utf-8") as f:
                     file_content = f.read()
                 file_sections.append(
                     f"--- [File: {filename}] ---\n"
@@ -715,7 +927,7 @@ def print_welcome_banner():
     print("[*] Write:    -w <file>       (save full response — raw, default)")
     print("[*]           -w:code <file>  (extract code blocks only)")
     print("[*]           -w:raw <file>   (explicit raw, same as -w)")
-    print("[*] Flags:    -r <file> (read, repeatable)  -m \"<msg>\" (message)")
+    print('[*] Flags:    -r <file> (read, repeatable)  -m "<msg>" (message)')
     print()
 
 
@@ -810,7 +1022,7 @@ def handle_efficient(parts):
 
     try:
         filepath = secure_resolve_path(filename, "efficient")
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             content = f.read().strip()
         for name, engine in engines.items():
             if target in ["all", name]:
@@ -957,7 +1169,7 @@ def smart_split_steps(text):
         ch = text[i]
 
         # Handle escape sequences (backslash)
-        if ch == '\\' and i + 1 < length:
+        if ch == "\\" and i + 1 < length:
             current.append(ch)
             current.append(text[i + 1])
             i += 2
@@ -974,8 +1186,8 @@ def smart_split_steps(text):
             continue
 
         # Check for '->' delimiter only when outside quotes
-        if in_quote is None and ch == '-' and i + 1 < length and text[i + 1] == '>':
-            steps.append(''.join(current))
+        if in_quote is None and ch == "-" and i + 1 < length and text[i + 1] == ">":
+            steps.append("".join(current))
             current = []
             i += 2  # skip both '-' and '>'
             continue
@@ -984,7 +1196,7 @@ def smart_split_steps(text):
         i += 1
 
     # Append the final segment
-    steps.append(''.join(current))
+    steps.append("".join(current))
 
     return steps
 
@@ -1026,7 +1238,7 @@ def smart_split_parallel(text):
         ch = text[i]
 
         # Handle escape sequences (backslash)
-        if ch == '\\' and i + 1 < length:
+        if ch == "\\" and i + 1 < length:
             current.append(ch)
             current.append(text[i + 1])
             i += 2
@@ -1043,8 +1255,8 @@ def smart_split_parallel(text):
             continue
 
         # Check for '||' delimiter only when outside quotes
-        if in_quote is None and ch == '|' and i + 1 < length and text[i + 1] == '|':
-            segments.append(''.join(current))
+        if in_quote is None and ch == "|" and i + 1 < length and text[i + 1] == "|":
+            segments.append("".join(current))
             current = []
             i += 2  # skip both '|' characters
             continue
@@ -1053,7 +1265,7 @@ def smart_split_parallel(text):
         i += 1
 
     # Append the final segment
-    segments.append(''.join(current))
+    segments.append("".join(current))
 
     return segments
 
@@ -1083,14 +1295,14 @@ def normalize_step(step_text):
     for line in lines:
         stripped = line.strip()
         # Skip empty lines and comment-only lines
-        if not stripped or stripped.startswith('#'):
+        if not stripped or stripped.startswith("#"):
             continue
         filtered.append(stripped)
 
-    normalized = ' '.join(filtered)
+    normalized = " ".join(filtered)
     # Collapse multiple spaces into one
-    while '  ' in normalized:
-        normalized = normalized.replace('  ', ' ')
+    while "  " in normalized:
+        normalized = normalized.replace("  ", " ")
     return normalized.strip()
 
 
@@ -1113,7 +1325,7 @@ def detect_parallel_block(normalized_text):
           the original text if not a parallel block.
     """
     stripped = normalized_text.strip()
-    if stripped.startswith('[') and stripped.endswith(']'):
+    if stripped.startswith("[") and stripped.endswith("]"):
         inner = stripped[1:-1].strip()
         return True, inner
     return False, stripped
@@ -1212,7 +1424,7 @@ def parse_sequence_steps(editor_content):
                     continue
 
                 # Validate engine target
-                cmd_key = tokens[0].lower().replace('@', '')
+                cmd_key = tokens[0].lower().replace("@", "")
                 if cmd_key not in engines:
                     print(
                         f"[!] Step {global_step_idx}, parallel task {seg_idx}: "
@@ -1229,8 +1441,8 @@ def parse_sequence_steps(editor_content):
                     return None
 
                 # Ensure @ prefix
-                if not tokens[0].startswith('@'):
-                    tokens[0] = '@' + tokens[0]
+                if not tokens[0].startswith("@"):
+                    tokens[0] = "@" + tokens[0]
 
                 parallel_tasks.append(tokens)
 
@@ -1249,19 +1461,16 @@ def parse_sequence_steps(editor_content):
                 tokens = shlex.split(normalized)
             except ValueError as e:
                 print(
-                    f"[!] Step {global_step_idx}: "
-                    f"Parse error (mismatched quotes?): {e}"
+                    f"[!] Step {global_step_idx}: Parse error (mismatched quotes?): {e}"
                 )
-                logger.error(
-                    f"@sequence step {global_step_idx} shlex error: {e}"
-                )
+                logger.error(f"@sequence step {global_step_idx} shlex error: {e}")
                 return None
 
             if not tokens:
                 continue
 
             # Validate engine target
-            cmd_key = tokens[0].lower().replace('@', '')
+            cmd_key = tokens[0].lower().replace("@", "")
             if cmd_key not in engines:
                 print(f"[!] Step {global_step_idx}: Unknown model '{tokens[0]}'")
                 print(
@@ -1269,14 +1478,13 @@ def parse_sequence_steps(editor_content):
                     f"{', '.join('@' + k for k in engines.keys())}"
                 )
                 logger.warning(
-                    f"@sequence step {global_step_idx}: "
-                    f"unknown model '{tokens[0]}'"
+                    f"@sequence step {global_step_idx}: unknown model '{tokens[0]}'"
                 )
                 return None
 
             # Ensure @ prefix
-            if not tokens[0].startswith('@'):
-                tokens[0] = '@' + tokens[0]
+            if not tokens[0].startswith("@"):
+                tokens[0] = "@" + tokens[0]
 
             # Wrap in list to maintain nested structure: [[tokens]]
             parsed_steps.append([tokens])
@@ -1362,11 +1570,8 @@ def handle_sequence(parts):
 
         if is_parallel:
             # --- Parallel Execution Block ---
-            task_summaries = [' '.join(t) for t in step_tasks]
-            print(
-                f"[*] Executing Step {idx}/{total} "
-                f"[PARALLEL: {num_tasks} tasks]..."
-            )
+            task_summaries = [" ".join(t) for t in step_tasks]
+            print(f"[*] Executing Step {idx}/{total} [PARALLEL: {num_tasks} tasks]...")
             for t_idx, summary in enumerate(task_summaries, start=1):
                 print(f"    Task {t_idx}: {summary}")
             logger.info(
@@ -1389,16 +1594,13 @@ def handle_sequence(parts):
                         results[t_idx] = success
                     except Exception as e:
                         logger.error(
-                            f"[!] @sequence Step {idx}, "
-                            f"Task {t_idx} exception: {e}"
+                            f"[!] @sequence Step {idx}, Task {t_idx} exception: {e}"
                         )
                         results[t_idx] = False
 
             # Check results: all must succeed for the block to pass
             all_succeeded = all(results.values())
-            failed_tasks = [
-                t_idx for t_idx, ok in results.items() if not ok
-            ]
+            failed_tasks = [t_idx for t_idx, ok in results.items() if not ok]
 
             if not all_succeeded:
                 # Concurrent Cascade Stop
@@ -1407,8 +1609,7 @@ def handle_sequence(parts):
                     f"Failed tasks: {failed_tasks}"
                 )
                 safe_print(
-                    f"[!] Cascade Stop: "
-                    f"{total - idx} remaining step(s) skipped."
+                    f"[!] Cascade Stop: {total - idx} remaining step(s) skipped."
                 )
                 logger.error(
                     f"[!] @sequence Cascade Stop at step {idx}/{total} "
@@ -1425,22 +1626,17 @@ def handle_sequence(parts):
         else:
             # --- Sequential (single task) Execution ---
             tokens = step_tasks[0]
-            step_summary = ' '.join(tokens)
+            step_summary = " ".join(tokens)
             print(f"[*] Executing Step {idx}/{total}...")
             print(f"    Command: {step_summary}")
-            logger.info(
-                f"[*] @sequence Step {idx}/{total}: {step_summary}"
-            )
+            logger.info(f"[*] @sequence Step {idx}/{total}: {step_summary}")
 
             success = handle_ai_interaction(tokens)
 
             if not success:
                 # Cascade Stop
                 print(f"[!] Step {idx}/{total} failed. Halting sequence.")
-                print(
-                    f"[!] Cascade Stop: "
-                    f"{total - idx} remaining step(s) skipped."
-                )
+                print(f"[!] Cascade Stop: {total - idx} remaining step(s) skipped.")
                 logger.error(
                     f"[!] @sequence Cascade Stop at step {idx}/{total}. "
                     f"{total - idx} step(s) skipped."
@@ -1455,9 +1651,7 @@ def handle_sequence(parts):
     # --- Pipeline complete ---
     print("=" * 50)
     print(f"[✓] Sequence Execution complete. All {total} steps succeeded.")
-    logger.info(
-        f"[*] @sequence: Pipeline complete. All {total} steps succeeded."
-    )
+    logger.info(f"[*] @sequence: Pipeline complete. All {total} steps succeeded.")
 
 
 # --------------------------------------------------
