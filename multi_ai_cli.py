@@ -1,5 +1,6 @@
 import argparse
 import configparser
+import json
 import logging
 import os
 import re
@@ -9,22 +10,45 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 # AI SDKs
 import google.generativeai as genai
 from anthropic import Anthropic
 from openai import OpenAI
 
+# Optional: load .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 # ==================================================
 # Constants & Configuration
 # ==================================================
-VERSION = "0.9.2"
+VERSION = "0.11.0"
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_MAX_HISTORY_TURNS = 30
+
+# File extension to runner mapping for @sh -r
+RUNNER_MAP = {
+    ".py": ["python3"],
+    ".sh": ["bash"],
+    ".rb": ["ruby"],
+    ".js": ["node"],
+    ".ts": ["npx", "ts-node"],
+    ".pl": ["perl"],
+    ".lua": ["lua"],
+    ".r": ["Rscript"],
+    ".R": ["Rscript"],
+}
 
 # ==================================================
 # Thread-Safe Console Lock
@@ -159,7 +183,8 @@ def open_editor_for_prompt():
       4. Clean up the temp file
       5. Return the prompt text or None
     """
-    editor = os.environ.get("EDITOR", "vi")
+    editor_raw = os.environ.get("EDITOR", "vi").strip() or "vi"
+    editor_cmd = shlex.split(editor_raw)
 
     MARKER = "# ==================== END HEADER ===================="
     header = (
@@ -183,7 +208,7 @@ def open_editor_for_prompt():
             tmp_fd = None
             f.write(header)
 
-        result = subprocess.run([editor, tmp_path])
+        result = subprocess.run(editor_cmd + [tmp_path])
 
         if result.returncode != 0:
             logger.warning(f"Editor exited with non-zero status: {result.returncode}")
@@ -232,9 +257,9 @@ def open_editor_for_prompt():
         return content
 
     except FileNotFoundError:
-        print(f"[!] Editor '{editor}' not found. Set $EDITOR to your preferred editor.")
+        print(f"[!] Editor '{editor_cmd[0]}' not found. Set $EDITOR to your preferred editor.")
         print("    Example: export EDITOR=nano")
-        logger.error(f"Editor not found: {editor}")
+        logger.error(f"Editor not found: {editor_cmd[0]}")
         return None
     except Exception as e:
         print(f"[!] Editor error: {e}")
@@ -333,7 +358,7 @@ def _tail_of(text: str, n: int) -> str:
 
 
 # ==================================================
-# Engines (fixed)
+# Engines
 # ==================================================
 class GeminiEngine(AIEngine):
     """Google Gemini specific implementation."""
@@ -419,12 +444,10 @@ class GeminiEngine(AIEngine):
                             flush=True,
                         )
 
-                    # Append the model chunk so Gemini can continue from it.
                     current_history.append(
                         {"role": "model", "parts": self._to_gemini_part(answer_chunk)}
                     )
 
-                    # Anchor continuation with a tail of the full accumulated answer.
                     eff_tail_chars = max(
                         300, int(tail_chars * (0.8 ** (round_idx - 1)))
                     )
@@ -448,7 +471,6 @@ class GeminiEngine(AIEngine):
             )
             full_answer += "\n\n[TRUNCATED: auto-continue limit reached]\n"
 
-        # Store as a single clean turn in shared history.
         self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": full_answer})
         self._trim_history()
@@ -462,7 +484,6 @@ class OpenAIEngine(AIEngine):
     def __init__(self, name, model_name, client, max_tokens_key="openai_max_tokens"):
         super().__init__(name, model_name)
         self.client = client
-        # Read the specific limit key (e.g. openai_max_tokens or grok_max_tokens)
         self.max_tokens = _get_cfg_int("MODELS", max_tokens_key, fallback=4096)
 
     def _create_completion(self, messages):
@@ -635,6 +656,13 @@ try:
         api_key=get_api_key("grok_api_key", "GROK_API_KEY"),
         base_url="https://api.x.ai/v1",
     )
+    local_base = config.get("LOCAL", "base_url", fallback="http://localhost:11434/v1")
+    local_model = config.get("LOCAL", "model", fallback="qwen2.5-coder:14b")
+    local_key = config.get("LOCAL", "api_key", fallback="ollama").strip() or "ollama"
+    client_local = OpenAI(
+        api_key=local_key,
+        base_url=local_base,
+    )
 
     engines = {
         "gemini": GeminiEngine(
@@ -658,6 +686,12 @@ try:
             client_grok,
             max_tokens_key="grok_max_tokens",
         ),
+        "local": OpenAIEngine(
+            "Local",
+            local_model,
+            client_local,
+            max_tokens_key="local_max_tokens"
+        ),
     }
 
     for d_opt in ["work_efficient", "work_data"]:
@@ -670,12 +704,12 @@ except Exception as e:
     sys.exit(1)
 
 # --------------------------------------------------
-# 5. CLI Input Parsing & Prompt Assembly (Refactored for v0.9.1)
+# 5. CLI Input Parsing & Prompt Assembly
 # --------------------------------------------------
 
 # ---- Write-mode constants ----
-WRITE_MODE_RAW = "raw"  # Save full AI response as-is (new default)
-WRITE_MODE_CODE = "code"  # Extract fenced code blocks only
+WRITE_MODE_RAW = "raw"
+WRITE_MODE_CODE = "code"
 
 
 class ParsedInput:
@@ -696,7 +730,7 @@ class ParsedInput:
         self.message = ""
         self.read_files = []
         self.write_file = None
-        self.write_mode = WRITE_MODE_RAW  # v0.9.1: raw by default
+        self.write_mode = WRITE_MODE_RAW
         self.use_editor = False
 
 
@@ -712,34 +746,21 @@ def _parse_write_flag(token):
       -w:code     -> (WRITE_MODE_CODE, True)
       --write:code-> (WRITE_MODE_CODE, True)
       anything else -> (None, False)
-
-    Parameters
-    ----------
-    token : str
-        A single CLI token to examine.
-
-    Returns
-    -------
-    tuple[str | None, bool]
-        (write_mode, is_write_flag)
     """
-    # Regex: match -w or --write, optionally followed by :modifier
     pattern = r"^(?:-w|--write)(?::(\w+))?$"
     m = re.match(pattern, token)
     if not m:
         return None, False
 
-    modifier = m.group(1)  # None if no colon modifier present
+    modifier = m.group(1)
 
     if modifier is None:
-        # Plain -w / --write -> raw by default (v0.9.1 behavior)
         return WRITE_MODE_RAW, True
     elif modifier == "raw":
         return WRITE_MODE_RAW, True
     elif modifier == "code":
         return WRITE_MODE_CODE, True
     else:
-        # Unknown modifier
         print(f"[!] Unknown write modifier ':{modifier}'. Valid: :raw, :code")
         return None, False
 
@@ -748,28 +769,13 @@ def parse_cli_input(parts):
     """
     Parse the token list produced by splitting the user's input line.
 
-    Pattern B rules (v0.9.1 update)
-    --------------------------------
-    * ``parts[0]`` is always the ``@model`` token and is consumed silently.
-    * ``-r <file>`` / ``--read <file>`` can appear **multiple times**.
-      Each occurrence appends one filename to ``read_files``.
-    * ``-w <file>`` / ``-w:code <file>`` / ``-w:raw <file>`` appears
-      **at most once**.  The colon modifier selects the write mode:
-        - ``-w`` or ``-w:raw``  -> Save full AI response (raw). [DEFAULT]
-        - ``-w:code``           -> Extract fenced code blocks only.
-      If repeated, the last value wins (with a warning).
-    * ``-m <text>`` / ``--message <text>`` consumes the **single next token**
-      as a message string. If repeated, values are space-joined.
-    * ``-e`` / ``--edit`` is a boolean flag (no argument).
-    * All remaining (unflagged) tokens after ``parts[0]`` become ``a1``.
-
     Returns
     -------
     ParsedInput | None
-        ``None`` signals a parsing error that was already printed to the user.
+        None signals a parsing error that was already printed to the user.
     """
     parsed = ParsedInput()
-    indices_to_skip = {0}  # skip @model token
+    indices_to_skip = {0}
 
     i = 1
     while i < len(parts):
@@ -789,7 +795,6 @@ def parse_cli_input(parts):
         write_mode, is_write = _parse_write_flag(token)
         if is_write:
             if write_mode is None:
-                # Unknown modifier — error already printed by _parse_write_flag
                 return None
             if i + 1 >= len(parts):
                 print(f"[!] Flag '{token}' requires a filename argument.")
@@ -840,41 +845,23 @@ def build_ai_prompt(parsed, editor_content=None):
     """
     Assemble the final prompt string sent to the AI engine.
 
-    Construction priority (fixed order)
-    ------------------------------------
-    1. **a1**  – Context / title (bare words from the command line)
-    2. **a2**  – Message supplied via ``-m``
-    3. **e**   – Editor content (placeholder slot; populated when ``-e`` is used)
-    4. **Files** – Contents of files supplied via ``-r``, each wrapped in clear
-       delimiters to prevent AI context confusion.
-
-    Parameters
-    ----------
-    parsed : ParsedInput
-        The structured result from ``parse_cli_input()``.
-    editor_content : str | None
-        Text captured from the editor when ``-e`` was used.
-
-    Returns
-    -------
-    str
-        The fully assembled prompt string (may be empty – caller should validate).
+    Construction priority (fixed order):
+      1. a1  -- Context / title
+      2. a2  -- Message (-m)
+      3. e   -- Editor content
+      4. Files -- Contents of files supplied via -r
     """
     sections = []
 
-    # 1. a1 – Context / Title
     if parsed.a1.strip():
         sections.append(parsed.a1.strip())
 
-    # 2. a2 – Message (-m)
     if parsed.message.strip():
         sections.append(parsed.message.strip())
 
-    # 3. e – Editor content (placeholder slot)
     if editor_content and editor_content.strip():
         sections.append(editor_content.strip())
 
-    # 4. Files (-r) with clear delimiters
     if parsed.read_files:
         file_sections = []
         for filename in parsed.read_files:
@@ -888,7 +875,6 @@ def build_ai_prompt(parsed, editor_content=None):
                     f"--- [End of File: {filename}] ---"
                 )
             except Exception as e:
-                # Propagate as AIError so the caller can handle it uniformly
                 raise AIError(f"Error reading input file '{filename}': {e}")
 
         if file_sections:
@@ -919,12 +905,14 @@ def print_welcome_banner():
         else "Enabled (tail -f logs/chat.log)"
     )
     print(f"[*] Logging: {log_status}")
-    print("[*] Commands: @model, @efficient, @scrub, @sequence, exit")
+    print("[*] Commands: @model, @efficient, @scrub, @sequence, @sh, exit")
     print("[*] Editor:   @model -e | --edit  (uses $EDITOR or vi)")
     print("[*] Sequence: @sequence -e  (multi-step pipeline via editor)")
     print("[*]           Use '->' to chain steps in editor mode")
     print("[*]           Use '[ cmd1 || cmd2 ]' for parallel execution")
-    print("[*] Write:    -w <file>       (save full response — raw, default)")
+    print('[*] Shell:    @sh "command"  |  @sh -r script.py  |  @sh "cmd" -w out.json')
+    print("[*]           @sh --shell \"echo $HOME | grep user\"  (pipes/env expansion)")
+    print("[*] Write:    -w <file>       (save full response -- raw, default)")
     print("[*]           -w:code <file>  (extract code blocks only)")
     print("[*]           -w:raw <file>   (explicit raw, same as -w)")
     print('[*] Flags:    -r <file> (read, repeatable)  -m "<msg>" (message)')
@@ -934,7 +922,7 @@ def print_welcome_banner():
 def clear_thinking_line():
     """Clears the 'thinking' status line in the terminal."""
     with _console_lock:
-        cols = shutil.get_terminal_size().columns
+        cols = shutil.get_terminal_size(fallback=(80, 20)).columns
         print(" " * (cols - 1), end="\r", flush=True)
 
 
@@ -943,19 +931,7 @@ def extract_code_block(text):
     Extracts all fenced code blocks from the given text and concatenates them.
 
     Used by -w:code mode to strip explanatory prose and return only code.
-
-    If the text contains no fenced code blocks (``` ... ```), returns
-    the original text unchanged as a fallback.
-
-    Parameters
-    ----------
-    text : str
-        The full AI response text, potentially containing fenced code blocks.
-
-    Returns
-    -------
-    str
-        Concatenated code block contents, or the original text if no blocks found.
+    If no fenced code blocks are found, returns the original text as a fallback.
     """
     if "```" not in text:
         return text
@@ -1032,16 +1008,388 @@ def handle_efficient(parts):
         print(f"[!] Persona loading failed: {e}")
 
 
+# --------------------------------------------------
+# 5.6 @sh Command Handler (Shell Orchestration)
+# --------------------------------------------------
+class ParsedShInput:
+    """
+    Data class holding the result of @sh input parsing.
+
+    Attributes:
+        command     : Raw command string for direct execution (quoted argument)
+        run_file    : Filename to execute via auto-detected runner (-r)
+        write_file  : Output filename for capturing execution artifacts (-w)
+        use_shell   : Whether --shell flag was specified (enables shell=True)
+    """
+
+    def __init__(self):
+        self.command = None
+        self.run_file = None
+        self.write_file = None
+        self.use_shell = False
+
+
+def _parse_sh_input(parts):
+    """
+    Parse @sh command tokens into a structured ParsedShInput.
+
+    Syntax: @sh ["command"] [-r file] [-w output_file] [--shell]
+
+    Rules:
+      - parts[0] is '@sh' and is skipped.
+      - -r <file>: Specifies a file from data/ to execute with an auto-detected runner.
+      - -w <file>: Specifies the output capture file. .json -> structured JSON,
+                    otherwise -> Markdown-like text.
+      - --shell:   Enables shell=True for pipes, env expansion, etc.
+      - Bare (unflagged) tokens are joined as the raw command string.
+
+    Returns
+    -------
+    ParsedShInput | None
+        None signals a parsing error (already printed to user).
+    """
+    parsed = ParsedShInput()
+    bare_tokens = []
+
+    i = 1  # Skip '@sh'
+    while i < len(parts):
+        token = parts[i]
+
+        if token in ("-r", "--read"):
+            if i + 1 >= len(parts):
+                print(f"[!] @sh: Flag '{token}' requires a filename argument.")
+                return None
+            if parsed.run_file is not None:
+                print(f"[!] @sh: -r specified more than once. Using '{parts[i + 1]}'.")
+            parsed.run_file = parts[i + 1]
+            i += 2
+            continue
+
+        if token in ("-w", "--write"):
+            if i + 1 >= len(parts):
+                print(f"[!] @sh: Flag '{token}' requires a filename argument.")
+                return None
+            if parsed.write_file is not None:
+                print(f"[!] @sh: -w specified more than once. Using '{parts[i + 1]}'.")
+            parsed.write_file = parts[i + 1]
+            i += 2
+            continue
+
+        if token == "--shell":
+            parsed.use_shell = True
+            i += 1
+            continue
+
+        # Bare token -> part of the command string
+        bare_tokens.append(token)
+        i += 1
+
+    if bare_tokens:
+        parsed.command = " ".join(bare_tokens)
+
+    return parsed
+
+
+def _resolve_runner(filename):
+    """
+    Determine the appropriate runner command for a given filename based on extension.
+
+    Returns
+    -------
+    list[str] | None
+        The runner prefix as a list (e.g., ['python3']), or None if no mapping exists.
+    """
+    ext = Path(filename).suffix.lower()
+    # Handle case-sensitive .R extension explicitly
+    if Path(filename).suffix == ".R":
+        ext = ".R"
+    return RUNNER_MAP.get(ext)
+
+
+def _build_sh_command(parsed):
+    """
+    Build the final command list (or string for shell mode) from parsed @sh input.
+
+    Resolves -r files from the data/ blackboard directory and maps them to
+    the appropriate runner. For direct commands, uses shlex.split() for safe
+    parsing (unless --shell is specified).
+
+    Returns
+    -------
+    tuple[list[str] | str, bool] | None
+        (cmd, use_shell) -- cmd is a list for non-shell mode or a string for
+        shell mode. Returns None on error (already printed).
+    """
+    if parsed.run_file and parsed.command:
+        print("[!] @sh: Cannot use both -r <file> and a direct command simultaneously.")
+        return None
+
+    if not parsed.run_file and not parsed.command:
+        print("[!] @sh: No command or file specified.")
+        print('    Usage: @sh "command" | @sh -r script.py [-w output] [--shell]')
+        return None
+
+    if parsed.run_file:
+        # Resolve the file from the data/ blackboard
+        try:
+            filepath = secure_resolve_path(parsed.run_file, "data")
+        except PermissionError as e:
+            print(f"[!] @sh: {e}")
+            return None
+
+        if not os.path.isfile(filepath):
+            print(f"[!] @sh: File not found: '{parsed.run_file}' (resolved: {filepath})")
+            return None
+
+        runner = _resolve_runner(parsed.run_file)
+        if runner is None:
+            ext = Path(parsed.run_file).suffix
+            print(f"[!] @sh: No runner mapped for extension '{ext}'.")
+            print(f"    Supported: {', '.join(sorted(RUNNER_MAP.keys()))}")
+            return None
+
+        cmd = runner + [filepath]
+        return cmd, parsed.use_shell
+
+    # Direct command execution
+    if parsed.use_shell:
+        # Pass raw string to shell for pipes, env expansion, etc.
+        return parsed.command, True
+
+    # Safe parsing via shlex.split()
+    try:
+        cmd = shlex.split(parsed.command)
+    except ValueError as e:
+        print(f"[!] @sh: Command parse error (mismatched quotes?): {e}")
+        return None
+
+    if not cmd:
+        print("[!] @sh: Empty command after parsing.")
+        return None
+
+    return cmd, False
+
+
+def _format_artifact_text(cmd_display, exit_code, stdout, stderr, duration_ms):
+    """
+    Format execution results as a human-readable Markdown-like text artifact.
+    """
+    status = "SUCCESS" if exit_code == 0 else "FAILURE"
+    lines = [
+        "# Shell Execution Artifact",
+        "",
+        f"- **Command:** `{cmd_display}`",
+        f"- **Status:** {status}",
+        f"- **Exit Code:** {exit_code}",
+        f"- **Duration:** {duration_ms:.1f}ms",
+        "",
+    ]
+
+    if stdout.strip():
+        lines.extend([
+            "## stdout",
+            "```",
+            stdout.rstrip(),
+            "```",
+            "",
+        ])
+    else:
+        lines.append("## stdout\n_(empty)_\n")
+
+    if stderr.strip():
+        lines.extend([
+            "## stderr",
+            "```",
+            stderr.rstrip(),
+            "```",
+            "",
+        ])
+    else:
+        lines.append("## stderr\n_(empty)_\n")
+
+    return "\n".join(lines)
+
+
+def _format_artifact_json(cmd_display, exit_code, stdout, stderr, duration_ms):
+    """
+    Format execution results as a structured JSON artifact.
+    """
+    artifact = {
+        "command": cmd_display,
+        "status": "success" if exit_code == 0 else "failure",
+        "exit_code": exit_code,
+        "duration_ms": round(duration_ms, 1),
+        "stdout": stdout,
+        "stderr": stderr,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }
+    return json.dumps(artifact, indent=2, ensure_ascii=False)
+
+
+def handle_sh(parts):
+    """
+    Handles the @sh command: local shell orchestration.
+
+    Syntax: @sh ["command"] [-r file] [-w output_file] [--shell]
+
+    Modes:
+      - Direct execution: @sh "ls -la" or @sh ls -la
+      - Run file:         @sh -r script.py
+      - Output capture:   @sh "command" -w result.json  (or .txt/.md)
+      - Shell mode:       @sh --shell "echo $HOME | wc -c"
+
+    Security:
+      - Uses shlex.split() by default (no shell injection).
+      - shell=True only when --shell is explicitly passed.
+      - Inherits environment variables from the parent process.
+
+    Artifact formalization:
+      - Every execution yields: status, exit_code, stdout, stderr, duration.
+      - -w with .json extension -> structured JSON artifact.
+      - -w with other extensions -> readable Markdown-like text artifact.
+    """
+    # Parse the @sh-specific arguments
+    parsed = _parse_sh_input(parts)
+    if parsed is None:
+        return False
+
+    # Build the command to execute
+    build_result = _build_sh_command(parsed)
+    if build_result is None:
+        return False
+
+    cmd, use_shell = build_result
+
+    # Build a display string for logging and output
+    cmd_display = shlex.join(cmd) if isinstance(cmd, list) else cmd
+
+    logger.info(f"@sh: Executing '{cmd_display}' (shell={use_shell})")
+    print(f"[*] @sh: Executing: {cmd_display}")
+    if use_shell:
+        print("[*] @sh: --shell mode enabled (shell=True)")
+
+    # Execute via subprocess.run()
+    start_time = time.monotonic()
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=use_shell,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5-minute safety timeout
+        )
+    except FileNotFoundError as e:
+        print(f"[!] @sh: Command not found: {e}")
+        logger.error(f"@sh: Command not found: {e}")
+        return False
+    except subprocess.TimeoutExpired:
+        print("[!] @sh: Command timed out (300s limit).")
+        logger.error(f"@sh: Timeout for '{cmd_display}'")
+        return False
+    except PermissionError as e:
+        print(f"[!] @sh: Permission denied: {e}")
+        logger.error(f"@sh: Permission denied: {e}")
+        return False
+    except Exception as e:
+        print(f"[!] @sh: Execution error: {e}")
+        logger.error(f"@sh: Execution error: {e}")
+        return False
+
+    end_time = time.monotonic()
+    duration_ms = (end_time - start_time) * 1000
+
+    exit_code = result.returncode
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+
+    # Determine status label
+    status_icon = "✓" if exit_code == 0 else "✗"
+    status_label = "SUCCESS" if exit_code == 0 else "FAILURE"
+
+    logger.info(
+        f"@sh: Completed '{cmd_display}' -> exit_code={exit_code}, "
+        f"duration={duration_ms:.1f}ms, stdout={len(stdout)}chars, stderr={len(stderr)}chars"
+    )
+
+    # Display results to console
+    print(f"[{status_icon}] @sh: {status_label} (exit code: {exit_code}, {duration_ms:.1f}ms)")
+
+    if stdout.strip():
+        display_stdout = stdout.rstrip()
+        max_console_lines = 50
+        stdout_lines = display_stdout.splitlines()
+        if len(stdout_lines) > max_console_lines:
+            truncated = "\n".join(stdout_lines[:max_console_lines])
+            print(f"--- stdout ({len(stdout_lines)} lines, showing first {max_console_lines}) ---")
+            print(truncated)
+            print(f"--- (truncated, {len(stdout_lines) - max_console_lines} more lines) ---")
+        else:
+            print("--- stdout ---")
+            print(display_stdout)
+            print("--- end stdout ---")
+
+    if stderr.strip():
+        display_stderr = stderr.rstrip()
+        stderr_lines = display_stderr.splitlines()
+        max_stderr_lines = 30
+        if len(stderr_lines) > max_stderr_lines:
+            truncated = "\n".join(stderr_lines[:max_stderr_lines])
+            print(f"--- stderr ({len(stderr_lines)} lines, showing first {max_stderr_lines}) ---")
+            print(truncated)
+            print(f"--- (truncated, {len(stderr_lines) - max_stderr_lines} more lines) ---")
+        else:
+            print("--- stderr ---")
+            print(display_stderr)
+            print("--- end stderr ---")
+
+    # Write artifact if -w was specified
+    if parsed.write_file:
+        try:
+            out_path = secure_resolve_path(parsed.write_file, "data")
+
+            if parsed.write_file.lower().endswith(".json"):
+                artifact = _format_artifact_json(
+                    cmd_display, exit_code, stdout, stderr, duration_ms
+                )
+            else:
+                artifact = _format_artifact_text(
+                    cmd_display, exit_code, stdout, stderr, duration_ms
+                )
+
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(artifact)
+                f.flush()
+                os.fsync(f.fileno())
+
+            fmt_label = "JSON" if parsed.write_file.lower().endswith(".json") else "text"
+            print(f"[*] @sh: Artifact saved to '{parsed.write_file}' (format: {fmt_label}).")
+            logger.info(
+                f"@sh: Artifact written to '{parsed.write_file}' "
+                f"(format: {fmt_label}, chars: {len(artifact)})"
+            )
+        except PermissionError as e:
+            print(f"[!] @sh: Cannot write artifact: {e}")
+            logger.error(f"@sh: Artifact write blocked: {e}")
+        except Exception as e:
+            print(f"[!] @sh: Error writing artifact: {e}")
+            logger.error(f"@sh: Artifact write error: {e}")
+    exit_code = result.returncode
+    return exit_code == 0  # Return True on success, False on failure 
+
+# --------------------------------------------------
+# 5.7 AI Interaction Handler
+# --------------------------------------------------
 def handle_ai_interaction(parts):
     """
     Handles a single AI interaction command.
 
-    Supports Pattern B parsing with v0.9.1 write-mode modifiers:
+    Supports Pattern B parsing with write-mode modifiers:
       @model <context> -m <msg> -r file1.py -r file2.py -w out.txt -e
       @model "prompt" -w:code script.py
       @model "prompt" -w:raw  notes.md
 
-    Write behavior (v0.9.1 — "Raw by Default"):
+    Write behavior ("Raw by Default"):
       -w <file>       : Saves FULL AI response exactly as received (raw).
       -w:raw <file>   : Same as -w (explicit alias).
       -w:code <file>  : Extracts fenced code blocks only, strips prose.
@@ -1053,8 +1401,6 @@ def handle_ai_interaction(parts):
     -------
     bool
         True if the interaction completed successfully, False otherwise.
-        This return value is used by the sequential execution pipeline
-        to implement Cascade Stop behavior.
     """
     target_key = parts[0].lower().replace("@", "")
     engine = engines[target_key]
@@ -1096,13 +1442,10 @@ def handle_ai_interaction(parts):
         logger.info("-" * 40)
 
         if parsed.write_file:
-            # --- v0.9.1: Write mode dispatch ---
             if parsed.write_mode == WRITE_MODE_CODE:
-                # -w:code — extract fenced code blocks only
                 final_out = extract_code_block(result)
                 mode_label = "code-extracted"
             else:
-                # -w or -w:raw — save full response as-is (raw)
                 final_out = result
                 mode_label = "raw"
 
@@ -1130,38 +1473,16 @@ def handle_ai_interaction(parts):
 
 
 # --------------------------------------------------
-# 5.6 @sequence Command Handler (Refactored in v0.9.0)
-#     Now supports Parallel Execution via [ ... || ... ] syntax
+# 5.8 @sequence Command Handler
 # --------------------------------------------------
 def smart_split_steps(text):
     """
     Splits editor content into discrete steps using the '->' delimiter,
     while respecting quoted strings (Smart Splitting).
-
-    The '->' operator inside single or double quoted strings is preserved
-    as literal text and NOT treated as a step delimiter.
-
-    Parameters
-    ----------
-    text : str
-        The raw editor content (may contain newlines, comments, quotes).
-
-    Returns
-    -------
-    list[str]
-        A list of raw step strings (not yet normalized). Each element
-        represents the text between '->' delimiters.
-
-    Algorithm
-    ---------
-    Scans character-by-character tracking quote state:
-      - When inside quotes, '->' is accumulated as regular text.
-      - When outside quotes, '->' triggers a split.
-      - Escaped quotes (backslash-quote) do not toggle quote state.
     """
     steps = []
     current = []
-    in_quote = None  # None, '"', or "'"
+    in_quote = None
     i = 0
     length = len(text)
 
@@ -1189,48 +1510,23 @@ def smart_split_steps(text):
         if in_quote is None and ch == "-" and i + 1 < length and text[i + 1] == ">":
             steps.append("".join(current))
             current = []
-            i += 2  # skip both '-' and '>'
+            i += 2
             continue
 
         current.append(ch)
         i += 1
 
-    # Append the final segment
     steps.append("".join(current))
-
     return steps
 
 
 def smart_split_parallel(text):
     """
     Splits a string by the '||' operator while respecting quoted strings.
-
-    The '||' inside single or double quoted strings is treated as literal
-    text and NOT used as a parallel delimiter.
-
-    Parameters
-    ----------
-    text : str
-        The raw text of a single step (content between '[' and ']').
-
-    Returns
-    -------
-    list[str]
-        A list of raw parallel task strings. If no '||' is found outside
-        quotes, the result is a single-element list containing the
-        original text.
-
-    Algorithm
-    ---------
-    Scans character-by-character tracking quote state:
-      - When inside quotes, '||' is accumulated as regular text.
-      - When outside quotes, '||' triggers a split.
-      - Escaped quotes (backslash-quote) do not toggle quote state.
-      - A single '|' (not followed by another '|') is NOT a delimiter.
     """
     segments = []
     current = []
-    in_quote = None  # None, '"', or "'"
+    in_quote = None
     i = 0
     length = len(text)
 
@@ -1258,49 +1554,30 @@ def smart_split_parallel(text):
         if in_quote is None and ch == "|" and i + 1 < length and text[i + 1] == "|":
             segments.append("".join(current))
             current = []
-            i += 2  # skip both '|' characters
+            i += 2
             continue
 
         current.append(ch)
         i += 1
 
-    # Append the final segment
     segments.append("".join(current))
-
     return segments
 
 
 def normalize_step(step_text):
     """
     Normalizes a single step's raw text for tokenization.
-
-    Processing:
-      1. Remove lines that are pure comments (start with '#' after whitespace).
-      2. Strip leading/trailing whitespace from each remaining line.
-      3. Join all remaining lines with a single space.
-      4. Collapse multiple spaces into one.
-
-    Parameters
-    ----------
-    step_text : str
-        Raw text of a single step (may contain newlines, comments).
-
-    Returns
-    -------
-    str
-        A single normalized line ready for shlex tokenization.
+    Removes comments, strips whitespace, collapses spaces.
     """
     lines = step_text.splitlines()
     filtered = []
     for line in lines:
         stripped = line.strip()
-        # Skip empty lines and comment-only lines
         if not stripped or stripped.startswith("#"):
             continue
         filtered.append(stripped)
 
     normalized = " ".join(filtered)
-    # Collapse multiple spaces into one
     while "  " in normalized:
         normalized = normalized.replace("  ", " ")
     return normalized.strip()
@@ -1310,19 +1587,6 @@ def detect_parallel_block(normalized_text):
     """
     Detects whether a normalized step text is a parallel block wrapped
     in '[' and ']' brackets.
-
-    Parameters
-    ----------
-    normalized_text : str
-        The normalized (single-line, comment-free) step text.
-
-    Returns
-    -------
-    tuple[bool, str]
-        (is_parallel, inner_text)
-        - is_parallel: True if the step is wrapped in [ ... ]
-        - inner_text: The content inside the brackets (stripped), or
-          the original text if not a parallel block.
     """
     stripped = normalized_text.strip()
     if stripped.startswith("[") and stripped.endswith("]"):
@@ -1335,62 +1599,30 @@ def parse_sequence_steps(editor_content):
     """
     Parses the full editor content into a nested list of tokenized step commands.
 
-    Pipeline:
-      1. Smart-split by '->' (respecting quoted strings)
-      2. Normalize each step (strip comments, collapse whitespace)
-      3. Detect parallel blocks wrapped in [ ... ]
-      4. For parallel blocks, smart-split by '||' into sub-tasks
-      5. Tokenize each task with shlex
-      6. Validate each task targets a known AI engine
-
-    Parameters
-    ----------
-    editor_content : str
-        The raw multi-line content from the editor.
-
     Returns
     -------
     list[list[list[str]]] | None
-        A nested list where:
-          - Outer list = sequential steps
-          - Middle list = parallel tasks within a step (1 task = sequential,
-            multiple = parallel)
-          - Inner list = token list for a single command
+        Nested list: outer=sequential steps, middle=parallel tasks, inner=tokens.
         Returns None if any parsing or validation error occurs.
-
-    Example
-    -------
-    For input:
-      @gemini "hello" -w out.txt -> [ @gpt "a" || @claude "b" ] -> @grok "c"
-
-    Returns:
-      [
-        [['@gemini', 'hello', '-w', 'out.txt']],          # step 1: sequential
-        [['@gpt', 'a'], ['@claude', 'b']],                # step 2: parallel
-        [['@grok', 'c']]                                   # step 3: sequential
-      ]
     """
-    # Step 1: Smart split by '->'
     raw_steps = smart_split_steps(editor_content)
 
-    # Step 2-6: Process each raw step
     parsed_steps = []
     global_step_idx = 0
+
+    VALID_COMMANDS = set(engines.keys()) | {"sh", "scrub", "flush", "efficient"}
 
     for raw in raw_steps:
         normalized = normalize_step(raw)
 
-        # Skip empty steps (e.g., trailing '->' or comment-only blocks)
         if not normalized:
             continue
 
         global_step_idx += 1
 
-        # Step 3: Detect parallel block
         is_parallel, inner_text = detect_parallel_block(normalized)
 
         if is_parallel:
-            # Step 4: Split by '||'
             parallel_segments = smart_split_parallel(inner_text)
             parallel_tasks = []
 
@@ -1423,24 +1655,23 @@ def parse_sequence_steps(editor_content):
                 if not tokens:
                     continue
 
-                # Validate engine target
                 cmd_key = tokens[0].lower().replace("@", "")
-                if cmd_key not in engines:
+                
+                if cmd_key not in VALID_COMMANDS:
                     print(
                         f"[!] Step {global_step_idx}, parallel task {seg_idx}: "
-                        f"Unknown model '{tokens[0]}'"
+                        f"Unknown command/model '{tokens[0]}'"
                     )
                     print(
-                        f"    Available models: "
-                        f"{', '.join('@' + k for k in engines.keys())}"
+                        f"    Available commands: "
+                        f"{', '.join('@' + k for k in sorted(VALID_COMMANDS))}"
                     )
                     logger.warning(
                         f"@sequence step {global_step_idx}, "
-                        f"parallel task {seg_idx}: unknown model '{tokens[0]}'"
+                        f"parallel task {seg_idx}: unknown command '{tokens[0]}'"
                     )
                     return None
 
-                # Ensure @ prefix
                 if not tokens[0].startswith("@"):
                     tokens[0] = "@" + tokens[0]
 
@@ -1456,7 +1687,6 @@ def parse_sequence_steps(editor_content):
             parsed_steps.append(parallel_tasks)
 
         else:
-            # Sequential (single task) step
             try:
                 tokens = shlex.split(normalized)
             except ValueError as e:
@@ -1469,27 +1699,65 @@ def parse_sequence_steps(editor_content):
             if not tokens:
                 continue
 
-            # Validate engine target
             cmd_key = tokens[0].lower().replace("@", "")
-            if cmd_key not in engines:
-                print(f"[!] Step {global_step_idx}: Unknown model '{tokens[0]}'")
+            if cmd_key not in VALID_COMMANDS:
                 print(
-                    f"    Available models: "
-                    f"{', '.join('@' + k for k in engines.keys())}"
+                    f"[!] Step {global_step_idx}: "
+                    f"Unknown command/model '{tokens[0]}'"
+                )
+                print(
+                    f"    Available commands: "
+                    f"{', '.join('@' + k for k in sorted(VALID_COMMANDS))}"
                 )
                 logger.warning(
-                    f"@sequence step {global_step_idx}: unknown model '{tokens[0]}'"
+                    f"@sequence step {global_step_idx}: unknown command '{tokens[0]}'"
                 )
                 return None
 
-            # Ensure @ prefix
             if not tokens[0].startswith("@"):
                 tokens[0] = "@" + tokens[0]
 
-            # Wrap in list to maintain nested structure: [[tokens]]
             parsed_steps.append([tokens])
 
     return parsed_steps
+
+
+# --------------------------------------------------
+# 5.9 Command Dispatcher
+# --------------------------------------------------
+def dispatch_command(parts):
+    """
+    入力されたトークンのリストを受け取り、適切なハンドラにルーティングする。
+    成功すれば True を、失敗または不明なコマンドであれば False を返す。
+    （Sequence実行時のCascade Stop判定に利用）
+    """
+    cmd = parts[0].lower()
+
+    if cmd in ["@scrub", "@flush"]:
+        handle_scrub(parts)
+        return True
+        
+    if cmd == "@efficient":
+        handle_efficient(parts)
+        return True
+        
+    if cmd == "@sequence":
+        handle_sequence(parts)
+        return True
+        
+    if cmd == "@sh":
+        return handle_sh(parts)
+
+    target_key = cmd.replace("@", "")
+    if target_key in engines:
+        return handle_ai_interaction(parts)
+
+    print(f"[!] Unknown command: '{cmd}'")
+    print(
+        f"    Available: {', '.join('@' + k for k in engines.keys())}, "
+        f"@efficient, @scrub, @sequence, @sh, exit"
+    )
+    return False
 
 
 def handle_sequence(parts):
@@ -1497,34 +1765,6 @@ def handle_sequence(parts):
     Handles the @sequence command with Sequential and Parallel Execution support.
 
     Usage: @sequence -e | @sequence --edit
-
-    Flow:
-      1. Verify that -e / --edit flag is present (required).
-      2. Open the editor via open_editor_for_prompt().
-      3. Parse the editor content into discrete steps using '->' delimiters.
-         - Smart Splitting ensures '->' inside quotes is not a delimiter.
-         - Comments (#) and extra whitespace are stripped.
-         - Steps wrapped in [ ... ] with '||' are parsed as parallel blocks.
-      4. Execute each step:
-         - Sequential steps: run via handle_ai_interaction() directly.
-         - Parallel steps: spawn threads via ThreadPoolExecutor, wait for all.
-         - Cascade Stop: If any step/task fails, halt after the current block.
-         - Artifact Relay: Files written via -w in step N are available
-           for step N+1 to read via -r (guaranteed by fsync + join).
-
-    Example editor input:
-      # Step 1: Brainstorming
-      @gemini "Suggest a sci-fi concept" -w concept.txt
-      ->
-      # Step 2: Parallel expansion
-      [
-          @gpt "Write a story" -r concept.txt -w story.md
-          ||
-          @claude "Analyze feasibility" -r concept.txt -w analysis.md
-      ]
-      ->
-      # Step 3: Integration
-      @grok "Write a review" -r story.md -r analysis.md -w review.md
     """
     # --- Step 1: Require -e flag ---
     has_edit_flag = any(token in ("-e", "--edit") for token in parts[1:])
@@ -1533,16 +1773,15 @@ def handle_sequence(parts):
         print("    The -e (--edit) flag is required to open the editor.")
         return
 
-    # --- Step 2: Open editor to capture multi-line command ---
+    # --- Step 2: Open editor ---
     logger.info("[*] @sequence: Opening editor for sequential pipeline input.")
     editor_content = open_editor_for_prompt()
     if editor_content is None:
         return
 
-    # --- Step 3: Parse into steps (nested structure) ---
+    # --- Step 3: Parse into steps ---
     parsed_steps = parse_sequence_steps(editor_content)
     if parsed_steps is None:
-        # Parsing/validation error already printed
         return
 
     if not parsed_steps:
@@ -1551,12 +1790,15 @@ def handle_sequence(parts):
 
     total = len(parsed_steps)
 
-    # Single sequential step: no '->' detected, behave as standard sequence
+    # Single sequential step
     if total == 1 and len(parsed_steps[0]) == 1:
         tokens = parsed_steps[0][0]
-        print(f"[*] @sequence executing (single step): {' '.join(tokens)}")
-        logger.info(f"[*] @sequence single step: {' '.join(tokens)}")
-        handle_ai_interaction(tokens)
+        step_summary = shlex.join(tokens)
+        print(f"[*] @sequence executing (single step): {step_summary}")
+        logger.info(f"[*] @sequence single step: {step_summary}")
+        success = dispatch_command(tokens)
+        if not success:
+            print("[!] Single-step sequence failed.")
         return
 
     # --- Step 4: Execution Pipeline ---
@@ -1570,7 +1812,7 @@ def handle_sequence(parts):
 
         if is_parallel:
             # --- Parallel Execution Block ---
-            task_summaries = [" ".join(t) for t in step_tasks]
+            task_summaries = [shlex.join(t) for t in step_tasks]
             print(f"[*] Executing Step {idx}/{total} [PARALLEL: {num_tasks} tasks]...")
             for t_idx, summary in enumerate(task_summaries, start=1):
                 print(f"    Task {t_idx}: {summary}")
@@ -1579,12 +1821,11 @@ def handle_sequence(parts):
                 f"Parallel block with {num_tasks} tasks."
             )
 
-            # Execute all tasks concurrently using ThreadPoolExecutor
             results = {}
             with ThreadPoolExecutor(max_workers=num_tasks) as executor:
                 future_to_task = {}
                 for t_idx, task_tokens in enumerate(step_tasks, start=1):
-                    future = executor.submit(handle_ai_interaction, task_tokens)
+                    future = executor.submit(dispatch_command, task_tokens)
                     future_to_task[future] = t_idx
 
                 for future in as_completed(future_to_task):
@@ -1603,7 +1844,6 @@ def handle_sequence(parts):
             failed_tasks = [t_idx for t_idx, ok in results.items() if not ok]
 
             if not all_succeeded:
-                # Concurrent Cascade Stop
                 safe_print(
                     f"[!] Step {idx}/{total} PARALLEL BLOCK FAILED. "
                     f"Failed tasks: {failed_tasks}"
@@ -1626,15 +1866,14 @@ def handle_sequence(parts):
         else:
             # --- Sequential (single task) Execution ---
             tokens = step_tasks[0]
-            step_summary = " ".join(tokens)
+            step_summary = shlex.join(tokens)
             print(f"[*] Executing Step {idx}/{total}...")
             print(f"    Command: {step_summary}")
             logger.info(f"[*] @sequence Step {idx}/{total}: {step_summary}")
 
-            success = handle_ai_interaction(tokens)
+            success = dispatch_command(tokens)
 
             if not success:
-                # Cascade Stop
                 print(f"[!] Step {idx}/{total} failed. Halting sequence.")
                 print(f"[!] Cascade Stop: {total - idx} remaining step(s) skipped.")
                 logger.error(
@@ -1662,39 +1901,23 @@ print_welcome_banner()
 while True:
     try:
         user_input = input("% ").strip()
+        
         if not user_input:
             continue
         if user_input.lower() in ["exit", "quit"]:
             logger.info("--- Session Ended ---")
             break
 
-        parts = user_input.split()
-        cmd = parts[0].lower()
-
-        # --- Command routing ---
-        if cmd in ["@scrub", "@flush"]:
-            handle_scrub(parts)
+        try:
+            parts = shlex.split(user_input)
+        except ValueError as e:
+            print(f"[!] Parse error: {e}")
+            continue
+            
+        if not parts:
             continue
 
-        if cmd == "@efficient":
-            handle_efficient(parts)
-            continue
-
-        if cmd == "@sequence":
-            handle_sequence(parts)
-            continue
-
-        target_key = cmd.replace("@", "")
-        if target_key in engines:
-            handle_ai_interaction(parts)
-            continue
-
-        # --- Unknown command ---
-        print(f"[!] Unknown command: '{cmd}'")
-        print(
-            f"    Available: {', '.join('@' + k for k in engines.keys())}, "
-            f"@efficient, @scrub, @sequence, exit"
-        )
+        dispatch_command(parts)
 
     except KeyboardInterrupt:
         print("\n[!] Session interrupted. Type 'exit' to quit.")

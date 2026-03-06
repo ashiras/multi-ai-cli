@@ -38,10 +38,23 @@ gemini_max_output_tokens = 8192
 auto_continue_max_rounds = 5
 auto_continue_tail_chars = 1200
 
+# --- Local LLM Engine Configuration (@local) ---
+# This section defines the integration with locally hosted AI services 
+# (e.g., Ollama, LM Studio, or vLLM) via an OpenAI-compatible API.
+#
+# base_url: The local API endpoint. (Ollama default: http://localhost:11434/v1)
+# model:    The specific model name loaded in your local provider.
+# api_key:  A placeholder key (required by the SDK; 'ollama' or 'local' is fine).
+# local_max_tokens: Maximum output length per request for the local model.
+[LOCAL]
+base_url = http://localhost:11434/v1
+model = qwen2.5-coder:14b
+api_key = ollama
+
 [Paths]
-# --- Directory Paths ---
-# Directories for storing system prompts (@efficient) and output data (-w). 
-# Paths are relative to the CLI script location.
+# --- Directory Management ---
+# work_efficient: Folder for system prompts/personas used by the @efficient command.
+# work_data:      The 'blackboard' directory for reading (-r) and writing (-w) files.
 work_efficient = prompts
 work_data = work_data
 
