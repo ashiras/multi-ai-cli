@@ -1,5 +1,5 @@
 """
-A simple CLI tool to query multiple AI models: Google Gemini, Anthropic Claude, OpenAI GPT.
+multi-ai-cli: A simple CLI tool to query multiple AI models: Google Gemini, Anthropic Claude, OpenAI GPT.
 
 Usage:
     multi-ai "Your prompt here"

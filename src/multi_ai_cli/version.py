@@ -13,4 +13,4 @@ try:
 except PackageNotFoundError:
     # Fallback to a development version string if the package is not
     # installed in the current environment (e.g., during local development).
-    __version__ = "0.0.0-dev"
+    __version__ = "0.11.0"
