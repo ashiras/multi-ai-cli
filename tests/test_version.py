@@ -1,5 +1,6 @@
 import multi_ai_cli
 
+
 def test_package_metadata():
     """
     Test if the package metadata in __init__.py is correctly defined.
@@ -10,10 +11,15 @@ def test_package_metadata():
     assert len(multi_ai_cli.__version__) > 0, "__version__ is empty"
 
     # Check if author name is correct
-    assert multi_ai_cli.__author__ == "Fumio SAGAWA", f"Expected 'Fumio SAGAWA', but got {multi_ai_cli.__author__}"
+    assert multi_ai_cli.__author__ == "Fumio SAGAWA", (
+        f"Expected 'Fumio SAGAWA', but got {multi_ai_cli.__author__}"
+    )
 
     # Check if license is correct
-    assert multi_ai_cli.__license__ == "MIT", f"Expected 'MIT', but got {multi_ai_cli.__license__}"
+    assert multi_ai_cli.__license__ == "MIT", (
+        f"Expected 'MIT', but got {multi_ai_cli.__license__}"
+    )
+
 
 def test_package_docstring():
     """

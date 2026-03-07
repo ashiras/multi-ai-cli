@@ -8,7 +8,7 @@ import os
 import sys
 from abc import ABC, abstractmethod
 
-from .config import DEFAULT_MAX_HISTORY_TURNS, config, get_api_key, logger, engines
+from .config import DEFAULT_MAX_HISTORY_TURNS, config, engines, get_api_key, logger
 from .utils import _console_lock, _get_cfg_int, _make_continue_prompt, _tail_of
 
 
@@ -363,38 +363,40 @@ def initialize_engines():
 
         # Instantiate engines
         engines.clear()
-        engines.update({
-            "gemini": GeminiEngine(
-                "Gemini",
-                config.get("MODELS", "gemini_model", fallback="gemini-2.5-flash"),
-                client=genai_client,
-            ),
-            "gpt": OpenAIEngine(
-                "GPT",
-                config.get("MODELS", "gpt_model", fallback="gpt-4o-mini"),
-                client_gpt,
-                max_tokens_key="openai_max_tokens",
-            ),
-            "claude": ClaudeEngine(
-                "Claude",
-                config.get(
-                    "MODELS", "claude_model", fallback="claude-3-5-sonnet-20241022"
+        engines.update(
+            {
+                "gemini": GeminiEngine(
+                    "Gemini",
+                    config.get("MODELS", "gemini_model", fallback="gemini-2.5-flash"),
+                    client=genai_client,
                 ),
-                client_claude,
-            ),
-            "grok": OpenAIEngine(
-                "Grok",
-                config.get("MODELS", "grok_model", fallback="grok-4-latest"),
-                client_grok,
-                max_tokens_key="grok_max_tokens",
-            ),
-            "local": OpenAIEngine(
-                "Local",
-                config.get("LOCAL", "model", fallback="qwen2.5-coder:14b"),
-                client_local,
-                max_tokens_key="local_max_tokens",
-            ),
-        })
+                "gpt": OpenAIEngine(
+                    "GPT",
+                    config.get("MODELS", "gpt_model", fallback="gpt-4o-mini"),
+                    client_gpt,
+                    max_tokens_key="openai_max_tokens",
+                ),
+                "claude": ClaudeEngine(
+                    "Claude",
+                    config.get(
+                        "MODELS", "claude_model", fallback="claude-3-5-sonnet-20241022"
+                    ),
+                    client_claude,
+                ),
+                "grok": OpenAIEngine(
+                    "Grok",
+                    config.get("MODELS", "grok_model", fallback="grok-4-latest"),
+                    client_grok,
+                    max_tokens_key="grok_max_tokens",
+                ),
+                "local": OpenAIEngine(
+                    "Local",
+                    config.get("LOCAL", "model", fallback="qwen2.5-coder:14b"),
+                    client_local,
+                    max_tokens_key="local_max_tokens",
+                ),
+            }
+        )
 
         # Ensure required directories exist
         for d_opt in ["work_efficient", "work_data"]:
