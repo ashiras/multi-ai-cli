@@ -49,6 +49,26 @@ Now, with **v0.11.0**, Multi-AI CLI introduces **native shell orchestration (`@s
 
 Note: On macOS, if prompted with a security warning, go to System Settings > Privacy & Security and click "Allow Anyway".
 
+### 🛠 For Developers (Source Installation)
+If you prefer to run from source or want to contribute to the project, use [uv](https://github.com/astral-sh/uv) for a seamless setup:
+
+1. Clone the repository:
+   ```bash
+   git clone git@github.com:ashiras/multi-ai-cli.git
+   cd multi-ai-cli
+   ```
+2. Sync dependencies and create a virtual environment:
+   ```Bash
+   uv sync
+   ```
+
+3. Run the CLI directly:
+   ```Bash
+   uv run multi-ai --version
+   ```
+
+Note: Using `uv` ensures that all linter (Ruff) and type-check (mypy) settings are applied exactly as configured in `pyproject.toml`.
+
 ### 🛠 Setup
 
 #### 1. API Keys & Environment Variables
