@@ -8,6 +8,7 @@ import os
 import shlex
 import sys
 
+from . import __version__
 from .config import engines, is_log_enabled, logger, setup_config, setup_logger
 from .handlers import dispatch_command
 from .utils import print_welcome_banner
@@ -21,6 +22,10 @@ def main() -> None:
     It handles user input, command parsing, and command execution in a loop,
     allowing the user to interact with the AI engines.
     """
+    if "--version" in sys.argv or "-v" in sys.argv:
+        print(f"multi-ai version {__version__}")
+        sys.exit(0)
+
     # Check for required configuration file
     ini_path = "multi_ai_cli.ini"
     if not os.path.exists(ini_path):
