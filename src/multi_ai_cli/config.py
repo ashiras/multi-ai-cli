@@ -141,12 +141,14 @@ def initialize_engines() -> None:
 
     try:
         # Import necessary client libraries
-        import google.generativeai as genai
         from anthropic import Anthropic
+        from google import genai
         from openai import OpenAI
 
         # Configure each AI client with their respective API keys
-        genai.configure(api_key=get_api_key("gemini_api_key", "GEMINI_API_KEY"))
+        client_gemini = genai.Client(
+            api_key=get_api_key("gemini_api_key", "GEMINI_API_KEY")
+        )
         client_gpt = OpenAI(api_key=get_api_key("openai_api_key", "OPENAI_API_KEY"))
         client_claude = Anthropic(
             api_key=get_api_key("anthropic_api_key", "ANTHROPIC_API_KEY")
@@ -170,6 +172,7 @@ def initialize_engines() -> None:
                 "gemini": GeminiEngine(
                     "Gemini",
                     config.get("MODELS", "gemini_model", fallback="gemini-2.5-flash"),
+                    client_gemini,
                 ),
                 "gpt": OpenAIEngine(
                     "GPT",

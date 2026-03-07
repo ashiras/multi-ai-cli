@@ -11,6 +11,7 @@ from typing import Any, cast
 from anthropic import Anthropic
 from anthropic.types import MessageParam, TextBlock
 from google import genai
+from google.genai import types
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -96,7 +97,7 @@ class GeminiEngine(AIEngine):
         self,
         name: str,
         model_name: str,
-        client: Any | None = None,
+        client: genai.Client,
     ) -> None:
         """
         Initialize a Gemini engine.
@@ -108,42 +109,24 @@ class GeminiEngine(AIEngine):
 
         """
         super().__init__(name, model_name)
-        self.client = client  # genai.Client
+        self.client = client
         self.max_output_tokens = _get_cfg_int(
             config, "MODELS", "gemini_max_output_tokens", fallback=8192
         )
         self.model_name = model_name
 
-    def get_client(self) -> Any:
+    def get_client(self) -> genai.Client:
         """
-        Get or initialize the Google GenAI client.
+        Get the Google GenAI client instance.
 
         Returns:
             genai.Client: The Google GenAI client instance.
         """
-        if self.client is None:
-            api_key = os.getenv("GEMINI_API_KEY")
-            if not api_key:
-                raise RuntimeError("GEMINI_API_KEY is not set")
-            self.client = genai.Client(api_key=api_key)
         return self.client
 
     def _after_persona_loaded(self) -> None:
         """Hook: called after loading persona. No need for rebuild in new SDK."""
         pass
-
-    def _to_gemini_part(self, content: str) -> list[dict[str, str]]:
-        """
-        Convert plain text to a Gemini 'parts' entry.
-
-        Args:
-            content (str): The plain text content to convert.
-
-        Returns:
-            list: A list of dictionaries formatted for Gemini parts.
-
-        """
-        return [{"text": content}]
 
     def _hit_output_limit(self, response: Any, answer_chunk: str) -> bool:
         """
@@ -165,7 +148,7 @@ class GeminiEngine(AIEngine):
             pass
 
         finish_name = getattr(finish_reason, "name", str(finish_reason))
-        # Check if response was truncated due to max tokens or formatting issues
+
         if finish_name == "MAX_TOKENS" or finish_reason == 2 or finish_reason == "2":
             return True
 
@@ -189,19 +172,17 @@ class GeminiEngine(AIEngine):
         """
         self._trim_history()  # Trim history to max allowed length
 
-        contents = []  # Prepare contents for the request
+        contents = []
         if self.system_prompt:
-            contents.append({"role": "model", "parts": [{"text": self.system_prompt}]})
+            contents.append({"role": "system", "parts": [{"text": self.system_prompt}]})
 
         # Append historical messages
         for msg in self.history:
             role = "user" if msg["role"] == "user" else "model"
-            contents.append(
-                {"role": role, "parts": self._to_gemini_part(msg["content"])}
-            )
+            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
 
         # Append the current user prompt
-        contents.append({"role": "user", "parts": self._to_gemini_part(prompt)})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
 
         full_answer = ""
         max_rounds = _get_cfg_int(
@@ -211,13 +192,16 @@ class GeminiEngine(AIEngine):
             config, "MODELS", "auto_continue_tail_chars", fallback=1200
         )
 
-        gen_config = {"max_output_tokens": self.max_output_tokens}
+        gen_config = types.GenerateContentConfig(
+            max_output_tokens=self.max_output_tokens,
+        )
 
         client = self.get_client()
 
         # Loop for multiple rounds of Gemini interaction, if needed
         for round_idx in range(1, max_rounds + 1):
             try:
+                # ★変更7: 新しいSDKの generate_content の呼び出し方です
                 response = client.models.generate_content(
                     model=self.model_name,
                     contents=contents,
@@ -235,8 +219,9 @@ class GeminiEngine(AIEngine):
                             flush=True,
                         )
 
+                    # 続きを促すためのメッセージを追加
                     contents.append(
-                        {"role": "model", "parts": self._to_gemini_part(answer_chunk)}
+                        {"role": "model", "parts": [{"text": answer_chunk}]}
                     )
 
                     eff_tail_chars = max(
@@ -245,7 +230,7 @@ class GeminiEngine(AIEngine):
                     tail = _tail_of(full_answer, eff_tail_chars)
                     continue_prompt = _make_continue_prompt(tail)
                     contents.append(
-                        {"role": "user", "parts": self._to_gemini_part(continue_prompt)}
+                        {"role": "user", "parts": [{"text": continue_prompt}]}
                     )
                     continue
 

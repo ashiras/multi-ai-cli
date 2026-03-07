@@ -5,13 +5,12 @@ build-backend = "uv_build"
 [project]
 name = "multi-ai-cli"
 version = "0.11.2"
-description = "Add your description here"
+description = "A command-line interface for multi-AI orchestration and structured prompt workflows"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.84.0",
     "google-genai>=1.66.0",
-    "google-generativeai>=0.8.6",
     "openai>=2.26.0",
     "python-dotenv>=1.2.2",
 ]
