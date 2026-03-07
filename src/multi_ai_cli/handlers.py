@@ -11,7 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from .config import engines, logger, config
+from .config import config, engines, logger
 from .parsers import (
     ParsedInput,
     ParsedShInput,
