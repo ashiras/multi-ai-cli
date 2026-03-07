@@ -63,8 +63,6 @@ def test_extract_code_block():
     """
     Test the extraction of code blocks from Markdown text.
     """
-    # UIのマークダウンパーサーのバグを回避するため、
-    # バッククォート3つを直接書かずに `chr(96) * 3` で動的に生成します。
     fence = chr(96) * 3
 
     # 1. Text without any code blocks -> should return the original text

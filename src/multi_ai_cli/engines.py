@@ -1,4 +1,3 @@
-# src/multi_ai_cli/engines.py
 """
 AI engine implementations for Multi-AI CLI.
 Contains base abstract class and concrete engines for Gemini, GPT, Claude, Grok, and local models.
@@ -22,6 +21,13 @@ class AIEngine(ABC):
     """Base abstract class for all AI model implementations."""
 
     def __init__(self, name: str, model_name: str):
+        """
+        Initialize an AI engine.
+
+        Args:
+            name (str): The name of the AI engine.
+            model_name (str): The name of the specific model being used.
+        """
         self.name = name
         self.model_name = model_name
         self.system_prompt = ""
@@ -43,18 +49,23 @@ class AIEngine(ABC):
 
     def scrub(self):
         """Clear short-term memory (history) while keeping persona."""
-        self.history = []
+        self.history = []  # Clear history
         logger.info(f"[*] System: {self.name} history cleared.")
 
     def load_persona(self, prompt_text: str, filename: str):
-        """Set new system prompt (persona) and reset history."""
+        """Set new system prompt (persona) and reset history.
+
+        Args:
+            prompt_text (str): The new system prompt to load.
+            filename (str): The filename from which the persona is loaded.
+        """
         self.system_prompt = prompt_text
-        self.history = []
+        self.history = []  # Reset history
         self._after_persona_loaded()
         logger.info(f"[*] System: {self.name} persona loaded from '{filename}'.")
 
     def _after_persona_loaded(self):
-        """Hook called after loading persona."""
+        """Hook called after loading persona. Override in subclasses if needed."""
         pass
 
 
@@ -62,6 +73,14 @@ class GeminiEngine(AIEngine):
     """Implementation for Google Gemini models using the new google-genai SDK."""
 
     def __init__(self, name: str, model_name: str, client):
+        """
+        Initialize a Gemini engine.
+
+        Args:
+            name (str): The name of the AI engine.
+            model_name (str): The name of the specific Gemini model being used.
+            client: The Google GenAI client instance to use for communications.
+        """
         super().__init__(name, model_name)
         self.client = client  # genai.Client
         self.max_output_tokens = _get_cfg_int(
@@ -74,25 +93,38 @@ class GeminiEngine(AIEngine):
         pass
 
     def _to_gemini_part(self, content: str):
-        """Convert plain text to a Gemini 'parts' entry."""
+        """Convert plain text to a Gemini 'parts' entry.
+
+        Args:
+            content (str): The plain text content to convert.
+
+        Returns:
+            list: A list of dictionaries formatted for Gemini parts.
+        """
         return [{"text": content}]
 
     def _hit_output_limit(self, response, answer_chunk: str) -> bool:
-        """Detect whether the response was truncated by output limits."""
+        """Detect whether the response was truncated by output limits.
+
+        Args:
+            response: The response object from the Gemini API call.
+            answer_chunk (str): The latest chunk of the answer generated.
+
+        Returns:
+            bool: True if output limit was hit, otherwise False.
+        """
         finish_reason = None
         try:
-            # 新しいSDKの構造に合わせて取得を試みる
             if hasattr(response, "candidates") and response.candidates:
                 finish_reason = response.candidates[0].finish_reason
         except Exception:
             pass
 
-        # MAX_TOKENS（または整数値の 2）なら文字数制限に引っかかったと判定
         finish_name = getattr(finish_reason, "name", str(finish_reason))
+        # Check if response was truncated due to max tokens or formatting issues
         if finish_name == "MAX_TOKENS" or finish_reason == 2 or finish_reason == "2":
             return True
 
-        # フォールバック: バッククォートの数が奇数だったり、途切れそうな文字で終わっている場合
         if answer_chunk.count("```") % 2 == 1:
             return True
         if answer_chunk.rstrip().endswith((",", ":", "(", "[", "{")):
@@ -101,18 +133,28 @@ class GeminiEngine(AIEngine):
         return False
 
     def call(self, prompt: str) -> str:
-        self._trim_history()
+        """Call the AI engine with a user prompt and return the response.
 
-        contents = []
+        Args:
+            prompt (str): The user input to process.
+
+        Returns:
+            str: The AI-generated response text.
+        """
+        self._trim_history()  # Trim history to max allowed length
+
+        contents = []  # Prepare contents for the request
         if self.system_prompt:
             contents.append({"role": "model", "parts": [{"text": self.system_prompt}]})
 
+        # Append historical messages
         for msg in self.history:
             role = "user" if msg["role"] == "user" else "model"
             contents.append(
                 {"role": role, "parts": self._to_gemini_part(msg["content"])}
             )
 
+        # Append the current user prompt
         contents.append({"role": "user", "parts": self._to_gemini_part(prompt)})
 
         full_answer = ""
@@ -125,6 +167,7 @@ class GeminiEngine(AIEngine):
 
         gen_config = {"max_output_tokens": self.max_output_tokens}
 
+        # Loop for multiple rounds of Gemini interaction, if needed
         for round_idx in range(1, max_rounds + 1):
             try:
                 response = self.client.models.generate_content(
@@ -135,6 +178,7 @@ class GeminiEngine(AIEngine):
                 answer_chunk = response.text or ""
                 full_answer += answer_chunk
 
+                # Check if the output was truncated
                 if self._hit_output_limit(response, answer_chunk):
                     with _console_lock:
                         print(
@@ -157,18 +201,20 @@ class GeminiEngine(AIEngine):
                     )
                     continue
 
-                break
+                break  # Exit loop if no truncation
 
             except Exception as e:
                 logger.error(f"Gemini Error: {e}")
                 raise
 
         else:
+            # Indicate the response was truncated
             full_answer += "\n\n[TRUNCATED: auto-continue limit reached]\n"
 
+        # Update conversation history
         self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": full_answer})
-        self._trim_history()
+        self._trim_history()  # Trim history after updating
 
         return full_answer
 
@@ -183,12 +229,28 @@ class OpenAIEngine(AIEngine):
         client,
         max_tokens_key: str = "openai_max_tokens",
     ):
+        """
+        Initialize an OpenAI-compatible engine.
+
+        Args:
+            name (str): The name of the AI engine.
+            model_name (str): The name of the specific OpenAI model being used.
+            client: The OpenAI client instance to use for API calls.
+            max_tokens_key (str): The config key for max tokens allowed.
+        """
         super().__init__(name, model_name)
         self.client = client
         self.max_tokens = _get_cfg_int(config, "MODELS", max_tokens_key, fallback=4096)
 
     def _create_completion(self, messages):
-        """Call chat completions with max_tokens fallback."""
+        """Call chat completions with max_tokens fallback.
+
+        Args:
+            messages (list): The messages to send to the chat API.
+
+        Returns:
+            response: The response object from the API call.
+        """
         try:
             return self.client.chat.completions.create(
                 model=self.model_name,
@@ -204,13 +266,21 @@ class OpenAIEngine(AIEngine):
             )
 
     def call(self, prompt: str) -> str:
-        self._trim_history()
+        """Call the AI engine with a user prompt and return the response.
 
-        messages = []
+        Args:
+            prompt (str): The user input to process.
+
+        Returns:
+            str: The AI-generated response text.
+        """
+        self._trim_history()  # Trim history to max allowed length
+
+        messages = []  # Prepare messages for the API request
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
-        messages.extend(self.history)
-        messages.append({"role": "user", "content": prompt})
+        messages.extend(self.history)  # Include history in the request
+        messages.append({"role": "user", "content": prompt})  # Add user prompt
 
         full_answer = ""
         max_rounds = _get_cfg_int(
@@ -220,6 +290,7 @@ class OpenAIEngine(AIEngine):
             config, "MODELS", "auto_continue_tail_chars", fallback=1200
         )
 
+        # Loop for multiple rounds of GPT interaction, if needed
         for round_idx in range(1, max_rounds + 1):
             try:
                 response = self._create_completion(messages)
@@ -229,6 +300,7 @@ class OpenAIEngine(AIEngine):
 
                 full_answer += answer_chunk
 
+                # Check if the output was truncated
                 if finish_reason == "length":
                     with _console_lock:
                         print(
@@ -244,18 +316,20 @@ class OpenAIEngine(AIEngine):
                     messages.append({"role": "user", "content": continue_prompt})
                     continue
 
-                break
+                break  # Exit loop if no truncation
 
             except Exception as e:
                 logger.error(f"{self.name} API Error: {e}")
                 raise AIError(f"{self.name} error: {e}")
 
         else:
+            # Indicate the response was truncated
             full_answer += "\n\n[TRUNCATED: auto-continue limit reached]\n"
 
+        # Update conversation history
         self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": full_answer})
-        self._trim_history()
+        self._trim_history()  # Trim history after updating
 
         return full_answer
 
@@ -264,6 +338,14 @@ class ClaudeEngine(AIEngine):
     """Implementation for Anthropic Claude models."""
 
     def __init__(self, name: str, model_name: str, client):
+        """
+        Initialize a Claude engine.
+
+        Args:
+            name (str): The name of the AI engine.
+            model_name (str): The name of the specific Claude model being used.
+            client: The Anthropic client instance to use for communications.
+        """
         super().__init__(name, model_name)
         self.client = client
         self.max_tokens = _get_cfg_int(
@@ -271,7 +353,15 @@ class ClaudeEngine(AIEngine):
         )
 
     def call(self, prompt: str) -> str:
-        self._trim_history()
+        """Call the AI engine with a user prompt and return the response.
+
+        Args:
+            prompt (str): The user input to process.
+
+        Returns:
+            str: The AI-generated response text.
+        """
+        self._trim_history()  # Trim history to max allowed length
 
         messages = list(self.history) + [{"role": "user", "content": prompt}]
         full_answer = ""
@@ -283,6 +373,7 @@ class ClaudeEngine(AIEngine):
             config, "MODELS", "auto_continue_tail_chars", fallback=1200
         )
 
+        # Loop for multiple rounds of Claude interaction, if needed
         for round_idx in range(1, max_rounds + 1):
             try:
                 response = self.client.messages.create(
@@ -300,6 +391,7 @@ class ClaudeEngine(AIEngine):
 
                 full_answer += answer_chunk
 
+                # Check if the output was truncated
                 if stop_reason == "max_tokens":
                     with _console_lock:
                         print(
@@ -315,25 +407,26 @@ class ClaudeEngine(AIEngine):
                     messages.append({"role": "user", "content": continue_prompt})
                     continue
 
-                break
+                break  # Exit loop if no truncation
 
             except Exception as e:
                 logger.error(f"Claude API Error: {e}")
                 raise AIError(f"Claude error: {e}")
 
         else:
+            # Indicate the response was truncated
             full_answer += "\n\n[TRUNCATED: auto-continue limit reached]\n"
 
+        # Update conversation history
         self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": full_answer})
-        self._trim_history()
+        self._trim_history()  # Trim history after updating
 
         return full_answer
 
 
 def initialize_engines():
     """Initialize all AI clients and engine instances using modern SDKs."""
-
     try:
         # Gemini (new google-genai SDK)
         from google import genai
