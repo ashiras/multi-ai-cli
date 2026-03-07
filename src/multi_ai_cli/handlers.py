@@ -11,7 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from .config import engines, logger
+from .config import engines, logger, config
 from .parsers import (
     ParsedInput,
     ParsedShInput,
@@ -120,7 +120,7 @@ def handle_efficient(parts: list[str]):
         return
 
     try:
-        filepath = secure_resolve_path(filename, "efficient")
+        filepath = secure_resolve_path(filename, "efficient", config=config)
         with open(filepath, encoding="utf-8") as f:
             content = f.read().strip()
 
@@ -189,7 +189,7 @@ def handle_ai_interaction(parts: list[str]) -> bool:
                 final_out = result
                 mode_label = "raw"
 
-            out_path = secure_resolve_path(parsed.write_file, "data")
+            out_path = secure_resolve_path(parsed.write_file, "data", config=config)
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(final_out.strip())
                 f.flush()
@@ -307,7 +307,7 @@ def handle_sh(parts: list[str]) -> bool:
     # Write artifact if requested
     if parsed.write_file:
         try:
-            out_path = secure_resolve_path(parsed.write_file, "data")
+            out_path = secure_resolve_path(parsed.write_file, "data", config=config)
 
             if parsed.write_file.lower().endswith(".json"):
                 artifact = _format_artifact_json(
@@ -448,7 +448,7 @@ def _build_sh_command(parsed):
 
     if parsed.run_file:
         try:
-            filepath = secure_resolve_path(parsed.run_file, "data")
+            filepath = secure_resolve_path(parsed.run_file, "data", config=config)
         except PermissionError as e:
             print(f"[!] @sh: {e}")
             return None

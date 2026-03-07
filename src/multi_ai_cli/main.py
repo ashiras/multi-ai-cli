@@ -49,7 +49,31 @@ def main():
             if not parts:
                 continue
 
-            dispatch_command(parts)
+            command_chain = []
+            current_command = []
+            
+            for part in parts:
+                if part == "->":
+                    if current_command:
+                        command_chain.append(current_command)
+                        current_command = []
+                else:
+                    current_command.append(part)
+                    
+            if current_command:
+                command_chain.append(current_command)
+
+            # 分割したコマンドを順番に実行する
+            for step_idx, cmd_parts in enumerate(command_chain):
+                if len(command_chain) > 1:
+                    print(f"\n[*] Pipeline Step {step_idx + 1}/{len(command_chain)}: {' '.join(cmd_parts)}")
+                
+                success = dispatch_command(cmd_parts)
+                
+                # 途中で失敗したら、以降のパイプラインは中止する
+                if not success and len(command_chain) > 1:
+                    print("[!] Pipeline stopped due to an error in the current step.")
+                    break
 
         except KeyboardInterrupt:
             print("\n[!] Session interrupted. Type 'exit' to quit.")
