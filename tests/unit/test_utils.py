@@ -12,9 +12,7 @@ from multi_ai_cli.utils import (
 
 @pytest.fixture
 def mock_config(tmp_path):
-    """
-    Create a mock config and safe temporary directories for testing path resolution.
-    """
+    """Create a mock config and safe temporary directories for testing path resolution."""
     config = configparser.ConfigParser()
     config.add_section("Paths")
 
@@ -30,10 +28,8 @@ def mock_config(tmp_path):
     return config, tmp_path
 
 
-def test_secure_resolve_path_valid(mock_config):
-    """
-    Test resolving a valid filename within the allowed directory.
-    """
+def test_secure_resolve_path_valid(mock_config) -> None:
+    """Test resolving a valid filename within the allowed directory."""
     config, tmp_path = mock_config
 
     # Test resolving a file in the 'data' category
@@ -43,10 +39,8 @@ def test_secure_resolve_path_valid(mock_config):
     assert result == expected_path
 
 
-def test_secure_resolve_path_directory_traversal(mock_config):
-    """
-    Test that attempting to access files outside the base directory raises an error.
-    """
+def test_secure_resolve_path_directory_traversal(mock_config) -> None:
+    """Test that attempting to access files outside the base directory raises an error."""
     config, _ = mock_config
 
     # Attempting to go up one directory using '../'
@@ -59,10 +53,8 @@ def test_secure_resolve_path_directory_traversal(mock_config):
         secure_resolve_path(malicious_filename, category="data", config=config)
 
 
-def test_extract_code_block():
-    """
-    Test the extraction of code blocks from Markdown text.
-    """
+def test_extract_code_block() -> None:
+    """Test the extraction of code blocks from Markdown text."""
     fence = chr(96) * 3
 
     # 1. Text without any code blocks -> should return the original text
@@ -82,10 +74,8 @@ def test_extract_code_block():
     assert extract_code_block(text_multiple_blocks) == "Code 1\n\nCode 2"
 
 
-def test_tail_of():
-    """
-    Test the _tail_of string helper function.
-    """
+def test_tail_of() -> None:
+    """Test the _tail_of string helper function."""
     text = "abcdefghij"
 
     # Cut exactly 3 characters from the end
@@ -98,10 +88,8 @@ def test_tail_of():
     assert _tail_of("", 5) == ""
 
 
-def test_make_continue_prompt():
-    """
-    Test that the continuation prompt includes the provided tail text.
-    """
+def test_make_continue_prompt() -> None:
+    """Test that the continuation prompt includes the provided tail text."""
     tail_text = "print('Hello Wor"
     result = _make_continue_prompt(tail_text)
 

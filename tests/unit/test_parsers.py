@@ -7,10 +7,8 @@ from multi_ai_cli.parsers import (
 )
 
 
-def test_parse_write_flag():
-    """
-    Test if the write flag modifier parser correctly identifies modes.
-    """
+def test_parse_write_flag() -> None:
+    """Test if the write flag modifier parser correctly identifies modes."""
     # Test default raw mode
     assert _parse_write_flag("-w") == (WRITE_MODE_RAW, True)
     assert _parse_write_flag("--write") == (WRITE_MODE_RAW, True)
@@ -27,10 +25,8 @@ def test_parse_write_flag():
     assert _parse_write_flag("-m") == (None, False)
 
 
-def test_parse_cli_input_basic():
-    """
-    Test parsing basic CLI input without complex flags.
-    """
+def test_parse_cli_input_basic() -> None:
+    """Test parsing basic CLI input without complex flags."""
     # parts[0] is usually the command like '@gemini'
     parts = ["@gemini", "Translate", "this", "text"]
     parsed = parse_cli_input(parts)
@@ -42,10 +38,8 @@ def test_parse_cli_input_basic():
     assert parsed.write_file is None
 
 
-def test_parse_cli_input_complex():
-    """
-    Test parsing CLI input with multiple flags and values.
-    """
+def test_parse_cli_input_complex() -> None:
+    """Test parsing CLI input with multiple flags and values."""
     parts = [
         "@gpt",
         "Context text",
@@ -71,10 +65,8 @@ def test_parse_cli_input_complex():
     assert parsed.use_editor is True
 
 
-def test_parse_cli_input_errors():
-    """
-    Test parsing failures when required arguments for flags are missing.
-    """
+def test_parse_cli_input_errors() -> None:
+    """Test parsing failures when required arguments for flags are missing."""
     # Missing filename after -r
     assert parse_cli_input(["@claude", "-r"]) is None
 
@@ -85,10 +77,8 @@ def test_parse_cli_input_errors():
     assert parse_cli_input(["@gemini", "-m"]) is None
 
 
-def test_smart_split_steps():
-    """
-    Test the custom sequence splitter focusing on quote and escape handling.
-    """
+def test_smart_split_steps() -> None:
+    """Test the custom sequence splitter focusing on quote and escape handling."""
     # Basic split
     result = smart_split_steps("step 1 -> step 2 -> step 3")
     assert result == ["step 1", "step 2", "step 3"]

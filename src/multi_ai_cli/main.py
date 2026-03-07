@@ -13,7 +13,7 @@ from .handlers import dispatch_command
 from .utils import print_welcome_banner
 
 
-def main():
+def main() -> None:
     """
     Main entry point for the Multi-AI CLI application.
 

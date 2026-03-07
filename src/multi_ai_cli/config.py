@@ -25,25 +25,29 @@ DEFAULT_MAX_HISTORY_TURNS = 30
 INI_PATH = None
 
 
-def setup_config(ini_path: str):
-    """Load the INI configuration file into the global config object.
+def setup_config(ini_path: str) -> None:
+    """
+    Load the INI configuration file into the global config object.
 
     Args:
         ini_path (str): The path to the INI file to be loaded.
+
     """
     global config, INI_PATH
     config.read(ini_path, encoding="utf-8-sig")
     INI_PATH = ini_path
 
 
-def setup_logger(no_log: bool = False):
-    """Initialize the logging system based on INI settings and CLI flags.
+def setup_logger(no_log: bool = False) -> None:
+    """
+    Initialize the logging system based on INI settings and CLI flags.
 
     This function updates the global logger and the is_log_enabled flag based on
     the contents of the INI file and provided command line arguments.
 
     Args:
         no_log (bool, optional): If True, logging will be disabled. Defaults to False.
+
     """
     global logger, is_log_enabled
 
@@ -96,7 +100,8 @@ def setup_logger(no_log: bool = False):
 
 
 def get_api_key(opt: str, env_var: str) -> str:
-    """Retrieve API key from environment variable (priority) or INI file.
+    """
+    Retrieve API key from environment variable (priority) or INI file.
 
     If the API key is not found in both sources, a ValueError is raised.
 
@@ -109,6 +114,7 @@ def get_api_key(opt: str, env_var: str) -> str:
 
     Returns:
         str: The API key for the specified option.
+
     """
     val = os.getenv(env_var) or config.get("API_KEYS", opt, fallback="").strip()
     if not val:
@@ -119,8 +125,9 @@ def get_api_key(opt: str, env_var: str) -> str:
     return val
 
 
-def initialize_engines():
-    """Initialize all AI clients and engine instances.
+def initialize_engines() -> None:
+    """
+    Initialize all AI clients and engine instances.
 
     This function sets up client instances for various AI engines based on
     configuration details and environment variables. It populates the global
@@ -128,6 +135,7 @@ def initialize_engines():
 
     Raises:
         SystemExit: If there is an error during the startup.
+
     """
     global engines
 

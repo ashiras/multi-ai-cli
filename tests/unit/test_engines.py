@@ -26,7 +26,7 @@ def mock_openai_client():
     return client
 
 
-def test_engine_history_management(mock_openai_client):
+def test_engine_history_management(mock_openai_client) -> None:
     """
     Test common AIEngine features like memory scrubbing, persona loading,
     and history trimming using OpenAIEngine as a concrete implementation.
@@ -57,7 +57,7 @@ def test_engine_history_management(mock_openai_client):
     assert engine.history[0]["content"] == "New Q", "Older messages should be removed"
 
 
-def test_openai_engine_call(mock_openai_client):
+def test_openai_engine_call(mock_openai_client) -> None:
     """
     Test the call method of OpenAIEngine to ensure it formats history
     correctly and handles the mock response.

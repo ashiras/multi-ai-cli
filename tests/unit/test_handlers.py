@@ -20,19 +20,15 @@ def mock_engines():
         yield mock_engine
 
 
-def test_dispatch_command_unknown():
-    """
-    Test routing behavior for an unknown command.
-    """
+def test_dispatch_command_unknown() -> None:
+    """Test routing behavior for an unknown command."""
     # Should return False and print an error message safely
     result = handlers.dispatch_command(["@unknown"])
     assert result is False
 
 
-def test_handle_scrub(mock_engines):
-    """
-    Test if the @scrub command correctly calls the scrub method on the engine.
-    """
+def test_handle_scrub(mock_engines) -> None:
+    """Test if the @scrub command correctly calls the scrub method on the engine."""
     # Execute scrub for all engines
     handlers.handle_scrub(["@scrub", "all"])
 
@@ -40,10 +36,8 @@ def test_handle_scrub(mock_engines):
     mock_engines.scrub.assert_called_once()
 
 
-def test_handle_ai_interaction_basic(mock_engines):
-    """
-    Test basic AI interaction routing without an editor.
-    """
+def test_handle_ai_interaction_basic(mock_engines) -> None:
+    """Test basic AI interaction routing without an editor."""
     # parts: ["@mockai", "Hello", "AI"]
     result = handlers.handle_ai_interaction(["@mockai", "Hello", "AI"])
 
@@ -53,10 +47,8 @@ def test_handle_ai_interaction_basic(mock_engines):
 
 
 @patch("multi_ai_cli.handlers.subprocess.run")
-def test_handle_sh_direct_command(mock_subprocess_run):
-    """
-    Test @sh command execution safely by mocking subprocess.run.
-    """
+def test_handle_sh_direct_command(mock_subprocess_run) -> None:
+    """Test @sh command execution safely by mocking subprocess.run."""
     # 1. Setup the fake result of the subprocess
     mock_result = MagicMock()
     mock_result.returncode = 0
@@ -79,10 +71,8 @@ def test_handle_sh_direct_command(mock_subprocess_run):
     assert called_args == ["echo", "hello", "world"]
 
 
-def test_handle_sequence_requires_edit_flag(capsys):
-    """
-    Test that @sequence fails safely if the -e or --edit flag is missing.
-    """
+def test_handle_sequence_requires_edit_flag(capsys) -> None:
+    """Test that @sequence fails safely if the -e or --edit flag is missing."""
     # Execute without -e
     handlers.handle_sequence(["@sequence"])
 

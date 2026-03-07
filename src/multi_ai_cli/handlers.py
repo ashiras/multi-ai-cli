@@ -56,6 +56,7 @@ def dispatch_command(parts: list[str]) -> bool:
 
     Returns:
         bool: True if command succeeded, False otherwise.
+
     """
     if not parts:
         return False
@@ -91,11 +92,13 @@ def dispatch_command(parts: list[str]) -> bool:
     return False
 
 
-def handle_scrub(parts: list[str]):
-    """Handle @scrub / @flush command to clear engine history.
+def handle_scrub(parts: list[str]) -> None:
+    """
+    Handle @scrub / @flush command to clear engine history.
 
     Args:
         parts (list[str]): List of command parts.
+
     """
     target = parts[1].lower() if len(parts) > 1 else "all"
     valid_targets = set(engines.keys()) | {"all"}
@@ -110,11 +113,13 @@ def handle_scrub(parts: list[str]):
             print(f"[*] {engine.name} memory scrubbed.")
 
 
-def handle_efficient(parts: list[str]):
-    """Handle @efficient command to load persona files.
+def handle_efficient(parts: list[str]) -> None:
+    """
+    Handle @efficient command to load persona files.
 
     Args:
         parts (list[str]): List of command parts.
+
     """
     if len(parts) < 2:
         print("[!] Usage: @efficient [target/all] <filename.txt>")
@@ -155,6 +160,7 @@ def handle_ai_interaction(parts: list[str]) -> bool:
 
     Returns:
         bool: True if interaction succeeded, False otherwise.
+
     """
     target_key = parts[0].lower().replace("@", "")
     engine = engines.get(target_key)
@@ -242,6 +248,7 @@ def handle_sh(parts: list[str]) -> bool:
     @sh "ls -la"
     @sh -r script.py -w output.json
     @sh --shell "echo $HOME | grep user" -w result.md
+
     """
     parsed: ParsedShInput | None = _parse_sh_input(parts)
     if parsed is None:
@@ -360,11 +367,13 @@ def handle_sh(parts: list[str]) -> bool:
     return exit_code == 0
 
 
-def handle_sequence(parts: list[str]):
-    """Handle @sequence command (requires -e/--edit flag).
+def handle_sequence(parts: list[str]) -> None:
+    """
+    Handle @sequence command (requires -e/--edit flag).
 
     Args:
         parts (list[str]): List of command parts.
+
     """
     has_edit = any(t in ("-e", "--edit") for t in parts[1:])
 
@@ -453,14 +462,16 @@ def handle_sequence(parts: list[str]):
     logger.info("[*] @sequence: Pipeline completed successfully.")
 
 
-def _resolve_runner(filename):
-    """Resolve the appropriate runner for the given filename's extension.
+def _resolve_runner(filename: str) -> str | list[str] | None:
+    """
+    Resolve the appropriate runner for the given filename's extension.
 
     Args:
         filename (str): The name of the file for which to resolve the runner.
 
     Returns:
         list[str] | None: List of runner command or None if not found.
+
     """
     ext = Path(filename).suffix.lower()
     if Path(filename).suffix == ".R":
@@ -468,7 +479,7 @@ def _resolve_runner(filename):
     return RUNNER_MAP.get(ext)
 
 
-def _build_sh_command(parsed):
+def _build_sh_command(parsed: "ParsedShInput") -> tuple[list[str] | str, bool] | None:
     """
     Build the final command list or string from ParsedShInput.
 
@@ -479,6 +490,7 @@ def _build_sh_command(parsed):
 
     Returns:
         tuple | None: Tuple of command and shell usage flag or None if failed.
+
     """
     if parsed.run_file and parsed.command:
         print("[!] @sh: Cannot use both -r <file> and direct command.")
@@ -525,7 +537,13 @@ def _build_sh_command(parsed):
     return cmd, False
 
 
-def _format_artifact_text(cmd_display, exit_code, stdout, stderr, duration_ms):
+def _format_artifact_text(
+    cmd_display: str,
+    exit_code: int,
+    stdout: str,
+    stderr: str,
+    duration_ms: float
+) -> str:
     """
     Format shell command execution artifact as plain text.
 
@@ -538,6 +556,7 @@ def _format_artifact_text(cmd_display, exit_code, stdout, stderr, duration_ms):
 
     Returns:
         str: Formatted artifact as text.
+
     """
     status = "SUCCESS" if exit_code == 0 else "FAILURE"
     lines = [
@@ -562,7 +581,13 @@ def _format_artifact_text(cmd_display, exit_code, stdout, stderr, duration_ms):
     return "\n".join(lines)
 
 
-def _format_artifact_json(cmd_display, exit_code, stdout, stderr, duration_ms):
+def _format_artifact_json(
+    cmd_display: str,
+    exit_code: int,
+    stdout: str,
+    stderr: str,
+    duration_ms: float
+) -> str:
     """
     Format shell command execution artifact as JSON.
 
@@ -575,6 +600,7 @@ def _format_artifact_json(cmd_display, exit_code, stdout, stderr, duration_ms):
 
     Returns:
         str: Formatted artifact as JSON.
+
     """
     artifact = {
         "command": cmd_display,

@@ -15,10 +15,8 @@ def reset_globals():
     yield
 
 
-def test_setup_config(tmp_path):
-    """
-    Test loading the INI configuration file into the global config object.
-    """
+def test_setup_config(tmp_path) -> None:
+    """Test loading the INI configuration file into the global config object."""
     # Create a temporary INI file
     ini_file = tmp_path / "test.ini"
     ini_file.write_text("[API_KEYS]\ntest_key=12345\n", encoding="utf-8-sig")
@@ -31,10 +29,8 @@ def test_setup_config(tmp_path):
     assert app_config.config.get("API_KEYS", "test_key") == "12345"
 
 
-def test_get_api_key_from_env(monkeypatch):
-    """
-    Test retrieving an API key primarily from an environment variable.
-    """
+def test_get_api_key_from_env(monkeypatch) -> None:
+    """Test retrieving an API key primarily from an environment variable."""
     # Mock environment variable using pytest's monkeypatch
     monkeypatch.setenv("TEST_API_ENV", "env_secret_key")
 
@@ -45,10 +41,8 @@ def test_get_api_key_from_env(monkeypatch):
     assert key == "env_secret_key"
 
 
-def test_get_api_key_from_ini(tmp_path, monkeypatch):
-    """
-    Test retrieving an API key from the INI file when the env var is missing.
-    """
+def test_get_api_key_from_ini(tmp_path, monkeypatch) -> None:
+    """Test retrieving an API key from the INI file when the env var is missing."""
     # Ensure the environment variable is NOT set
     monkeypatch.delenv("TEST_API_ENV", raising=False)
 
@@ -64,10 +58,8 @@ def test_get_api_key_from_ini(tmp_path, monkeypatch):
     assert key == "ini_secret_key"
 
 
-def test_get_api_key_missing(monkeypatch):
-    """
-    Test if ValueError is raised when the API key is completely missing.
-    """
+def test_get_api_key_missing(monkeypatch) -> None:
+    """Test if ValueError is raised when the API key is completely missing."""
     # Ensure no environment variable is set
     monkeypatch.delenv("TEST_API_ENV", raising=False)
     app_config.INI_PATH = "dummy.ini"  # Set a dummy path for the error message

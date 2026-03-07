@@ -3,6 +3,7 @@ Utility functions for the Multi-AI CLI application.
 Includes path security, editor integration, console safety, string helpers, etc.
 """
 
+import configparser
 import logging
 import os
 import shlex
@@ -10,8 +11,11 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from typing import Any
 
 from . import __version__
+
+MARKER = "# ==================== END HEADER ===================="
 
 _console_lock = threading.Lock()  # Global lock for thread-safe console output
 
@@ -19,7 +23,7 @@ _console_lock = threading.Lock()  # Global lock for thread-safe console output
 def secure_resolve_path(
     filename: str,
     category: str = "data",
-    config=None,
+    config: configparser.ConfigParser | None = None,
 ) -> str:
     """
     Resolves a file path while preventing directory traversal attacks.
@@ -36,6 +40,7 @@ def secure_resolve_path(
     Raises:
         PermissionError: If path attempts directory traversal.
         RuntimeError: If config is not provided.
+
     """
     if config is None:
         raise RuntimeError("config must be provided")
@@ -64,7 +69,7 @@ def secure_resolve_path(
 
 
 def open_editor_for_prompt(
-    logger=None,
+    logger: logging.Logger | None = None,
 ) -> str | None:
     """
     Opens the user's preferred editor ($EDITOR or fallback to vi) with a temporary file.
@@ -82,6 +87,7 @@ def open_editor_for_prompt(
 
     Returns:
         str | None: The content written in the editor or None if empty.
+
     """
     if logger is None:
         logger = logging.getLogger("MultiAI")  # Fallback logger if none is provided
@@ -91,7 +97,6 @@ def open_editor_for_prompt(
     editor_cmd = shlex.split(editor_raw)  # Prepare command to launch the editor
 
     # Header to include in the temporary editor file
-    MARKER = "# ==================== END HEADER ===================="
     header = (
         "# ====================================================\n"
         "# Multi-AI CLI - Editor Mode\n"
@@ -205,25 +210,27 @@ def open_editor_for_prompt(
                 )  # Log cleanup issues
 
 
-def safe_print(*args, **kwargs):
+def safe_print(*args: Any, **kwargs: Any) -> None:
     """Thread-safe print using global console lock."""
     with _console_lock:
         print(*args, **kwargs)  # Print arguments safely
 
 
-def clear_thinking_line():
+def clear_thinking_line() -> None:
     """Clears the temporary 'thinking...' status line in the terminal."""
     with _console_lock:
         cols = shutil.get_terminal_size(fallback=(80, 20)).columns  # Get terminal width
         print(" " * (cols - 1), end="\r", flush=True)  # Print spaces to clear the line
 
 
-def print_welcome_banner(engines, is_log_enabled):
-    """Displays the startup banner with model info and available commands.
+def print_welcome_banner(engines: list[str], is_log_enabled: bool) -> None:
+    """
+    Displays the startup banner with model info and available commands.
 
     Args:
         engines: Dictionary of available model engines.
         is_log_enabled (bool): Whether logging is enabled.
+
     """
     print("==================================================")
     print(f"  Multi-AI CLI v{__version__} (Raw-by-Default Write Mode)")
@@ -248,8 +255,9 @@ def print_welcome_banner(engines, is_log_enabled):
     print('[*] Flags:    -r <file> (read, repeatable)  -m "<msg>" (message)')
 
 
-def _get_cfg_int(config, section: str, key: str, fallback: int) -> int:
-    """Safely read an integer from config with fallback on error.
+def _get_cfg_int(config: configparser.ConfigParser, section: str, key: str, fallback: int) -> int:
+    """
+    Safely read an integer from config with fallback on error.
 
     Args:
         config: The configuration object to read from.
@@ -259,6 +267,7 @@ def _get_cfg_int(config, section: str, key: str, fallback: int) -> int:
 
     Returns:
         int: The integer value from the config or fallback.
+
     """
     try:
         return config.getint(section, key, fallback=fallback)  # Get integer from config
@@ -267,8 +276,7 @@ def _get_cfg_int(config, section: str, key: str, fallback: int) -> int:
 
 
 def _make_continue_prompt(tail: str) -> str:
-    """
-    Builds a continuation instruction anchored by the tail of the previous output.
+    """Builds a continuation instruction anchored by the tail of the previous output.
     Uses fenced block to avoid quote/escape issues.
 
     Args:
@@ -276,6 +284,7 @@ def _make_continue_prompt(tail: str) -> str:
 
     Returns:
         str: The formatted continuation prompt.
+
     """
     return (
         "The output was truncated due to an output limit.\n"
@@ -292,7 +301,8 @@ def _make_continue_prompt(tail: str) -> str:
 
 
 def _tail_of(text: str, n: int) -> str:
-    """Return the last n characters of text (or the whole text if shorter).
+    """
+    Return the last n characters of text (or the whole text if shorter).
 
     Args:
         text (str): The text to extract from.
@@ -300,6 +310,7 @@ def _tail_of(text: str, n: int) -> str:
 
     Returns:
         str: The last n characters of the text.
+
     """
     if not text:
         return ""  # Return empty string if input is empty
@@ -307,8 +318,7 @@ def _tail_of(text: str, n: int) -> str:
 
 
 def extract_code_block(text: str) -> str:
-    """
-    Extracts all fenced code blocks from the text and concatenates them.
+    """Extract all fenced code blocks from the text and concatenates them.
     Used for -w:code mode to save only code, stripping explanatory text.
     Falls back to full text if no code blocks are found.
 
@@ -317,6 +327,7 @@ def extract_code_block(text: str) -> str:
 
     Returns:
         str: Concatenated code blocks or the original text.
+
     """
     if "```" not in text:  # Check for presence of code blocks
         return text  # Return the original text if no blocks are present

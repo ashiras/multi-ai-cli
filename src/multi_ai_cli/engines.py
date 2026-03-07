@@ -6,6 +6,10 @@ Contains base abstract class and concrete engines for Gemini, GPT, Claude, Grok,
 import os
 import sys
 from abc import ABC, abstractmethod
+from typing import Any
+
+from anthropic import Anthropic
+from openai import OpenAI
 
 from .config import DEFAULT_MAX_HISTORY_TURNS, config, engines, get_api_key, logger
 from .utils import _console_lock, _get_cfg_int, _make_continue_prompt, _tail_of
@@ -20,13 +24,14 @@ class AIError(Exception):
 class AIEngine(ABC):
     """Base abstract class for all AI model implementations."""
 
-    def __init__(self, name: str, model_name: str):
+    def __init__(self, name: str, model_name: str) -> None:
         """
         Initialize an AI engine.
 
         Args:
             name (str): The name of the AI engine.
             model_name (str): The name of the specific model being used.
+
         """
         self.name = name
         self.model_name = model_name
@@ -36,7 +41,7 @@ class AIEngine(ABC):
             "MODELS", "max_history_turns", fallback=DEFAULT_MAX_HISTORY_TURNS
         )
 
-    def _trim_history(self):
+    def _trim_history(self) -> None:
         """Keep conversation history within the allowed turn limit."""
         max_msgs = self.max_turns * 2
         if len(self.history) > max_msgs:
@@ -47,24 +52,26 @@ class AIEngine(ABC):
         """Send prompt to the AI and return the response text."""
         pass
 
-    def scrub(self):
+    def scrub(self) -> None:
         """Clear short-term memory (history) while keeping persona."""
         self.history = []  # Clear history
         logger.info(f"[*] System: {self.name} history cleared.")
 
-    def load_persona(self, prompt_text: str, filename: str):
-        """Set new system prompt (persona) and reset history.
+    def load_persona(self, prompt_text: str, filename: str) -> None:
+        """
+        Set new system prompt (persona) and reset history.
 
         Args:
             prompt_text (str): The new system prompt to load.
             filename (str): The filename from which the persona is loaded.
+
         """
         self.system_prompt = prompt_text
         self.history = []  # Reset history
         self._after_persona_loaded()
         logger.info(f"[*] System: {self.name} persona loaded from '{filename}'.")
 
-    def _after_persona_loaded(self):
+    def _after_persona_loaded(self) -> None:
         """Hook called after loading persona. Override in subclasses if needed."""
         pass
 
@@ -72,7 +79,7 @@ class AIEngine(ABC):
 class GeminiEngine(AIEngine):
     """Implementation for Google Gemini models using the new google-genai SDK."""
 
-    def __init__(self, name: str, model_name: str, client):
+    def __init__(self, name: str, model_name: str, client: Any) -> None:
         """
         Initialize a Gemini engine.
 
@@ -80,6 +87,7 @@ class GeminiEngine(AIEngine):
             name (str): The name of the AI engine.
             model_name (str): The name of the specific Gemini model being used.
             client: The Google GenAI client instance to use for communications.
+
         """
         super().__init__(name, model_name)
         self.client = client  # genai.Client
@@ -88,23 +96,26 @@ class GeminiEngine(AIEngine):
         )
         self.model_name = model_name
 
-    def _after_persona_loaded(self):
+    def _after_persona_loaded(self) -> None:
         """Hook: called after loading persona. No need for rebuild in new SDK."""
         pass
 
-    def _to_gemini_part(self, content: str):
-        """Convert plain text to a Gemini 'parts' entry.
+    def _to_gemini_part(self, content: str) -> dict[str, str]:
+        """
+        Convert plain text to a Gemini 'parts' entry.
 
         Args:
             content (str): The plain text content to convert.
 
         Returns:
             list: A list of dictionaries formatted for Gemini parts.
+
         """
         return [{"text": content}]
-
-    def _hit_output_limit(self, response, answer_chunk: str) -> bool:
-        """Detect whether the response was truncated by output limits.
+    
+    def _hit_output_limit(self, response: Any, answer_chunk: str) -> bool:
+        """
+        Detect whether the response was truncated by output limits.
 
         Args:
             response: The response object from the Gemini API call.
@@ -112,6 +123,7 @@ class GeminiEngine(AIEngine):
 
         Returns:
             bool: True if output limit was hit, otherwise False.
+
         """
         finish_reason = None
         try:
@@ -133,13 +145,15 @@ class GeminiEngine(AIEngine):
         return False
 
     def call(self, prompt: str) -> str:
-        """Call the AI engine with a user prompt and return the response.
+        """
+        Call the AI engine with a user prompt and return the response.
 
         Args:
             prompt (str): The user input to process.
 
         Returns:
             str: The AI-generated response text.
+
         """
         self._trim_history()  # Trim history to max allowed length
 
@@ -226,9 +240,9 @@ class OpenAIEngine(AIEngine):
         self,
         name: str,
         model_name: str,
-        client,
+        client: OpenAI,
         max_tokens_key: str = "openai_max_tokens",
-    ):
+    ) -> None:
         """
         Initialize an OpenAI-compatible engine.
 
@@ -237,19 +251,22 @@ class OpenAIEngine(AIEngine):
             model_name (str): The name of the specific OpenAI model being used.
             client: The OpenAI client instance to use for API calls.
             max_tokens_key (str): The config key for max tokens allowed.
+
         """
         super().__init__(name, model_name)
         self.client = client
         self.max_tokens = _get_cfg_int(config, "MODELS", max_tokens_key, fallback=4096)
-
-    def _create_completion(self, messages):
-        """Call chat completions with max_tokens fallback.
+    
+    def _create_completion(self, messages: list[dict[str, str]]) -> Any:
+        """
+        Call chat completions with max_tokens fallback.
 
         Args:
             messages (list): The messages to send to the chat API.
 
         Returns:
             response: The response object from the API call.
+
         """
         try:
             return self.client.chat.completions.create(
@@ -266,13 +283,15 @@ class OpenAIEngine(AIEngine):
             )
 
     def call(self, prompt: str) -> str:
-        """Call the AI engine with a user prompt and return the response.
+        """
+        Call the AI engine with a user prompt and return the response.
 
         Args:
             prompt (str): The user input to process.
 
         Returns:
             str: The AI-generated response text.
+
         """
         self._trim_history()  # Trim history to max allowed length
 
@@ -337,7 +356,7 @@ class OpenAIEngine(AIEngine):
 class ClaudeEngine(AIEngine):
     """Implementation for Anthropic Claude models."""
 
-    def __init__(self, name: str, model_name: str, client):
+    def __init__(self, name: str, model_name: str, client: Anthropic) -> None:
         """
         Initialize a Claude engine.
 
@@ -345,6 +364,7 @@ class ClaudeEngine(AIEngine):
             name (str): The name of the AI engine.
             model_name (str): The name of the specific Claude model being used.
             client: The Anthropic client instance to use for communications.
+
         """
         super().__init__(name, model_name)
         self.client = client
@@ -353,13 +373,15 @@ class ClaudeEngine(AIEngine):
         )
 
     def call(self, prompt: str) -> str:
-        """Call the AI engine with a user prompt and return the response.
+        """
+        Call the AI engine with a user prompt and return the response.
 
         Args:
             prompt (str): The user input to process.
 
         Returns:
             str: The AI-generated response text.
+
         """
         self._trim_history()  # Trim history to max allowed length
 
@@ -425,7 +447,7 @@ class ClaudeEngine(AIEngine):
         return full_answer
 
 
-def initialize_engines():
+def initialize_engines() -> None:
     """Initialize all AI clients and engine instances using modern SDKs."""
     try:
         # Gemini (new google-genai SDK)

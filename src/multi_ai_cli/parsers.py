@@ -12,7 +12,18 @@ from .utils import secure_resolve_path
 
 WRITE_MODE_RAW = "raw"  # Constant for raw write mode
 WRITE_MODE_CODE = "code"  # Constant for code write mode
-
+# Define valid command keywords
+VALID_COMMANDS = {
+    "gemini",
+    "gpt",
+    "claude",
+    "grok",
+    "local",
+    "sh",
+    "scrub",
+    "flush",
+    "efficient",
+}
 
 @dataclass
 class ParsedInput:
@@ -26,6 +37,7 @@ class ParsedInput:
         write_file (str | None): Output filename from -w / -w:code / -w:raw.
         write_mode (str): "raw" or "code".
         use_editor (bool): Whether -e / --edit was used.
+
     """
 
     a1: str = ""  # Context/title text
@@ -35,11 +47,10 @@ class ParsedInput:
     write_mode: str = WRITE_MODE_RAW  # Write mode, defaults to raw
     use_editor: bool = False  # Flag indicating if editor was used
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Initialize read_files to an empty list if None."""
         if self.read_files is None:
             self.read_files = []
-
 
 @dataclass
 class ParsedShInput:
@@ -51,6 +62,7 @@ class ParsedShInput:
         run_file (str | None): Filename to execute (-r flag).
         write_file (str | None): Output artifact filename (-w flag).
         use_shell (bool): Whether --shell was specified.
+
     """
 
     command: str | None = None  # Raw command to be executed
@@ -73,6 +85,7 @@ def _parse_write_flag(token: str) -> tuple[str | None, bool]:
 
     Returns:
         tuple[str | None, bool]: A tuple containing the write mode and a flag indicating if it's a write flag.
+
     """
     pattern = r"^(?:-w|--write)(?::(\w+))?$"  # Regex pattern for write flag
     m = re.match(pattern, token)  # Match against the pattern
@@ -107,6 +120,7 @@ def parse_cli_input(parts: list[str]) -> ParsedInput | None:
 
     Returns:
         ParsedInput | None: A ParsedInput object if parsing succeeds, or None if it fails.
+
     """
     parsed = ParsedInput()  # Initialize the ParsedInput object
     indices_to_skip = {0}  # Skip command itself (e.g. @gemini)
@@ -178,7 +192,7 @@ def build_ai_prompt(parsed: ParsedInput, editor_content: str | None = None) -> s
       1. a1 (bare context/title)
       2. message (-m flags)
       3. editor_content (from -e/--edit)
-      4. contents of files from -r flags
+      4. contents of files from -r flags.
 
     Raises RuntimeError if file reading fails.
 
@@ -188,6 +202,7 @@ def build_ai_prompt(parsed: ParsedInput, editor_content: str | None = None) -> s
 
     Returns:
         str: The assembled prompt.
+
     """
     sections = []  # List to hold parts of the prompt
 
@@ -241,6 +256,7 @@ def smart_split_steps(text: str) -> list[str]:
 
     Returns:
         list[str]: A list of split steps.
+
     """
     steps = []  # List to hold split steps
     current = []  # List for the current step being built
@@ -292,6 +308,7 @@ def smart_split_parallel(text: str) -> list[str]:
 
     Returns:
         list[str]: A list of split parallel tasks.
+
     """
     segments = []  # List to hold split segments
     current = []  # List for the current segment being built
@@ -343,6 +360,7 @@ def normalize_step(step_text: str) -> str:
 
     Returns:
         str: The normalized step text.
+
     """
     lines = step_text.splitlines()  # Split step text into lines
     filtered = []  # List to hold filtered lines
@@ -367,6 +385,7 @@ def detect_parallel_block(normalized_text: str) -> tuple[bool, str]:
 
     Returns:
         tuple[bool, str]: Tuple indicating if it's a parallel block and the inner text.
+
     """
     stripped = normalized_text.strip()  # Strip whitespace
     if stripped.startswith("[") and stripped.endswith("]"):  # Check for parallel block
@@ -382,24 +401,12 @@ def parse_sequence_steps(editor_content: str) -> list[list[list[str]]] | None:
         list[list[list[str]]] | None: An outer list of sequential steps,
             each containing middle lists of parallel tasks, and inner lists of tokens,
             or None if parsing/validation fails.
+
     """
     raw_steps = smart_split_steps(editor_content)  # Split editor content into raw steps
 
     parsed_steps = []  # List to hold parsed steps
     global_step_idx = 0  # Global step index for error reporting
-
-    # Define valid command keywords
-    VALID_COMMANDS = {
-        "gemini",
-        "gpt",
-        "claude",
-        "grok",
-        "local",
-        "sh",
-        "scrub",
-        "flush",
-        "efficient",
-    }
 
     for raw in raw_steps:
         normalized = normalize_step(raw)  # Normalize the raw step
@@ -497,6 +504,7 @@ def _parse_sh_input(parts: list[str]) -> ParsedShInput | None:
 
     Returns:
         ParsedShInput | None: A ParsedShInput object if parsing succeeds, or None if it fails.
+
     """
     parsed = ParsedShInput()  # Initialize the ParsedShInput object
     bare_tokens = []  # List to hold bare command tokens
