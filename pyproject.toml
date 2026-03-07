@@ -1,6 +1,35 @@
+[build-system]
+requires = ["uv_build>=0.8.0,<0.9.0"]
+build-backend = "uv_build"
+
+[project]
+name = "multi-ai-cli"
+version = "0.11.1"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.84.0",
+    "google-genai>=1.66.0",
+    "google-generativeai>=0.8.6",
+    "openai>=2.26.0",
+    "python-dotenv>=1.2.2",
+]
+packages = [{ include = "multi_ai_cli", from = "src" }]
+
+[project.scripts]
+multi-ai = "multi_ai_cli.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --import-mode=importlib"
+
 [tool.ruff]
 # Max line length (88 is the standard Black/Ruff line length for Python)
 line-length = 88
+
+target-version = "py313"
 
 # Exclude specific directories or files from being linted/formatted
 # exclude = ["tests/", "docs/", "build"]
@@ -8,10 +37,36 @@ line-length = 88
 [tool.ruff.lint]
 # Specify the linting rules to enable
 select = [
-    "E",   # pycodestyle (Standard style errors)
-    "F",   # Pyflakes (Logical errors, e.g., unused variables/imports)
-    "I",   # isort (Automatic import sorting)
-    "UP",  # pyupgrade (Automatically upgrade syntax for newer Python versions)
+    "E",    # pycodestyle (Standard style errors)
+    "F",    # Pyflakes (Logical errors: unused variables/imports)
+    "I",    # isort (Automatic sorting of import statements)
+    "UP",   # pyupgrade (Forces latest Python 3.13 syntax)
+    "D",    # pydocstyle (Enforces documentation/Docstrings for every function)
+    "N",    # pep8-naming (Ensures class/function names follow Python standards)
+    "ANN",  # flake8-annotations (Forces Type Hints for all function arguments)
 ]
+
 # Specify any rules you want to ignore (leave empty to enforce all selected)
-ignore = ["E501"]
+ignore = [
+    "E501", # Line length
+    "D200", # One-line docstring
+    "D203", # One-line docstring summary before (conflicts with D211)
+    "D205", # 1 blank line required between summary and description
+    "D212", # Multi-line docstring summary (start at first line)
+    "D213", # Multi-line docstring summary (start at second line)
+    "D401", # First line should be in imperative mood
+    "ANN401",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = ["ANN", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "ruff>=0.15.5",
+]

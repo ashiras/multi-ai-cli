@@ -1,7 +1,30 @@
+# Project-local config / packaging artifacts
 multi_ai_cli.ini
+multi-ai.spec
+
+# Build artifacts
 build/
 dist/
-multi-ai.spec
+
+# Python cache
 __pycache__/
-.DS_Store
+*.pyc
+
+# Tool caches
 .ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Virtual environment
+.venv/
+
+# Secrets
+.env
+
+# Runtime / local data
+logs/
+work_data/
+prompts/
+
+# OS files
+.DS_Store
