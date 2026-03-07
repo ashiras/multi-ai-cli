@@ -59,7 +59,7 @@ def main() -> None:
                 continue
 
             command_chain = []  # Prepare to hold command pipeline
-            current_command = []  # Temporary holder for the current command
+            current_command: list[str] = []  # Temporary holder for the current command
 
             # Split user input into commands based on "->"
             for part in parts:

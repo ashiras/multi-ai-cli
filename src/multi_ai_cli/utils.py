@@ -14,6 +14,7 @@ import threading
 from typing import Any
 
 from . import __version__
+from .engines import AIEngine
 
 MARKER = "# ==================== END HEADER ===================="
 
@@ -223,7 +224,7 @@ def clear_thinking_line() -> None:
         print(" " * (cols - 1), end="\r", flush=True)  # Print spaces to clear the line
 
 
-def print_welcome_banner(engines: list[str], is_log_enabled: bool) -> None:
+def print_welcome_banner(engines: dict[str, AIEngine], is_log_enabled: bool) -> None:
     """
     Displays the startup banner with model info and available commands.
 
@@ -255,7 +256,9 @@ def print_welcome_banner(engines: list[str], is_log_enabled: bool) -> None:
     print('[*] Flags:    -r <file> (read, repeatable)  -m "<msg>" (message)')
 
 
-def _get_cfg_int(config: configparser.ConfigParser, section: str, key: str, fallback: int) -> int:
+def _get_cfg_int(
+    config: configparser.ConfigParser, section: str, key: str, fallback: int
+) -> int:
     """
     Safely read an integer from config with fallback on error.
 
@@ -334,7 +337,7 @@ def extract_code_block(text: str) -> str:
 
     lines = text.splitlines()  # Split text into lines
     extracted_blocks = []  # List to hold extracted code blocks
-    current_block = []  # List for the current block being constructed
+    current_block: list[str] = []  # List for the current block being constructed
     in_block = False  # Flag to track if currently inside a code block
 
     for line in lines:

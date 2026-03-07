@@ -25,6 +25,7 @@ VALID_COMMANDS = {
     "efficient",
 }
 
+
 @dataclass
 class ParsedInput:
     """
@@ -42,7 +43,7 @@ class ParsedInput:
 
     a1: str = ""  # Context/title text
     message: str = ""  # Concatenated message text
-    read_files: list[str] = None  # List of read file names
+    read_files: list[str] = []
     write_file: str | None = None  # Output file name
     write_mode: str = WRITE_MODE_RAW  # Write mode, defaults to raw
     use_editor: bool = False  # Flag indicating if editor was used
@@ -51,6 +52,7 @@ class ParsedInput:
         """Initialize read_files to an empty list if None."""
         if self.read_files is None:
             self.read_files = []
+
 
 @dataclass
 class ParsedShInput:

@@ -517,12 +517,21 @@ def _build_sh_command(parsed: "ParsedShInput") -> tuple[list[str] | str, bool] |
             print(f"[!] @sh: No runner for extension '{ext}'.")
             return None
 
+        if isinstance(runner, str):
+            runner = [runner]
+
         cmd = runner + [filepath]
+
         return cmd, parsed.use_shell
 
-    # Direct command
     if parsed.use_shell:
+        if parsed.command is None:
+            return None
         return parsed.command, True
+
+    if parsed.command is None:
+        print("[!] @sh: No command provided.")
+        return None
 
     try:
         cmd = shlex.split(parsed.command)
@@ -538,11 +547,7 @@ def _build_sh_command(parsed: "ParsedShInput") -> tuple[list[str] | str, bool] |
 
 
 def _format_artifact_text(
-    cmd_display: str,
-    exit_code: int,
-    stdout: str,
-    stderr: str,
-    duration_ms: float
+    cmd_display: str, exit_code: int, stdout: str, stderr: str, duration_ms: float
 ) -> str:
     """
     Format shell command execution artifact as plain text.
@@ -582,11 +587,7 @@ def _format_artifact_text(
 
 
 def _format_artifact_json(
-    cmd_display: str,
-    exit_code: int,
-    stdout: str,
-    stderr: str,
-    duration_ms: float
+    cmd_display: str, exit_code: int, stdout: str, stderr: str, duration_ms: float
 ) -> str:
     """
     Format shell command execution artifact as JSON.
