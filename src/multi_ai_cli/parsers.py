@@ -5,7 +5,7 @@ Handles CLI argument parsing, prompt building, and @sequence step parsing.
 
 import re
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .config import config
 from .utils import secure_resolve_path
@@ -43,7 +43,7 @@ class ParsedInput:
 
     a1: str = ""  # Context/title text
     message: str = ""  # Concatenated message text
-    read_files: list[str] = []
+    read_files: list[str] = field(default_factory=list)
     write_file: str | None = None  # Output file name
     write_mode: str = WRITE_MODE_RAW  # Write mode, defaults to raw
     use_editor: bool = False  # Flag indicating if editor was used

@@ -11,14 +11,21 @@ import shutil
 import subprocess
 import tempfile
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import __version__
-from .engines import AIEngine
+
+if TYPE_CHECKING:
+    from .engines import AIEngine
 
 MARKER = "# ==================== END HEADER ===================="
 
 _console_lock = threading.Lock()  # Global lock for thread-safe console output
+
+
+def some_utility_function(engine: "AIEngine") -> None:
+    """Example utility function that might interact with an AIEngine instance."""
+    pass
 
 
 def secure_resolve_path(
@@ -224,7 +231,7 @@ def clear_thinking_line() -> None:
         print(" " * (cols - 1), end="\r", flush=True)  # Print spaces to clear the line
 
 
-def print_welcome_banner(engines: dict[str, AIEngine], is_log_enabled: bool) -> None:
+def print_welcome_banner(engines: dict[str, "AIEngine"], is_log_enabled: bool) -> None:
     """
     Displays the startup banner with model info and available commands.
 
