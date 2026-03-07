@@ -8,7 +8,7 @@ import os
 import sys
 from abc import ABC, abstractmethod
 
-from .config import DEFAULT_MAX_HISTORY_TURNS, config, get_api_key, logger
+from .config import DEFAULT_MAX_HISTORY_TURNS, config, get_api_key, logger, engines
 from .utils import _console_lock, _get_cfg_int, _make_continue_prompt, _tail_of
 
 
@@ -73,6 +73,33 @@ class GeminiEngine(AIEngine):
         """Hook: called after loading persona. No need for rebuild in new SDK."""
         pass
 
+    def _to_gemini_part(self, content: str):
+        """Convert plain text to a Gemini 'parts' entry."""
+        return [{"text": content}]
+
+    def _hit_output_limit(self, response, answer_chunk: str) -> bool:
+        """Detect whether the response was truncated by output limits."""
+        finish_reason = None
+        try:
+            # 新しいSDKの構造に合わせて取得を試みる
+            if hasattr(response, "candidates") and response.candidates:
+                finish_reason = response.candidates[0].finish_reason
+        except Exception:
+            pass
+
+        # MAX_TOKENS（または整数値の 2）なら文字数制限に引っかかったと判定
+        finish_name = getattr(finish_reason, "name", str(finish_reason))
+        if finish_name == "MAX_TOKENS" or finish_reason == 2 or finish_reason == "2":
+            return True
+
+        # フォールバック: バッククォートの数が奇数だったり、途切れそうな文字で終わっている場合
+        if answer_chunk.count("```") % 2 == 1:
+            return True
+        if answer_chunk.rstrip().endswith((",", ":", "(", "[", "{")):
+            return True
+
+        return False
+
     def call(self, prompt: str) -> str:
         self._trim_history()
 
@@ -102,8 +129,8 @@ class GeminiEngine(AIEngine):
             try:
                 response = self.client.models.generate_content(
                     model=self.model_name,
-                    contents=contents,  # ← system_prompt を contents 先頭に埋め込み
-                    generation_config=gen_config,
+                    contents=contents,
+                    config=gen_config,
                 )
                 answer_chunk = response.text or ""
                 full_answer += answer_chunk
@@ -306,7 +333,6 @@ class ClaudeEngine(AIEngine):
 
 def initialize_engines():
     """Initialize all AI clients and engine instances using modern SDKs."""
-    global engines
 
     try:
         # Gemini (new google-genai SDK)
@@ -336,7 +362,8 @@ def initialize_engines():
         )
 
         # Instantiate engines
-        engines = {
+        engines.clear()
+        engines.update({
             "gemini": GeminiEngine(
                 "Gemini",
                 config.get("MODELS", "gemini_model", fallback="gemini-2.5-flash"),
@@ -367,7 +394,7 @@ def initialize_engines():
                 client_local,
                 max_tokens_key="local_max_tokens",
             ),
-        }
+        })
 
         # Ensure required directories exist
         for d_opt in ["work_efficient", "work_data"]:
