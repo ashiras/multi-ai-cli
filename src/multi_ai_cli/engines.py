@@ -1,6 +1,8 @@
 """
 AI engine implementations for Multi-AI CLI.
-Contains base abstract class and concrete engines for Gemini, GPT, Claude, Grok, and local models.
+
+Contains base abstract class and concrete engines for Gemini, GPT,
+Claude, Grok, and local models.
 """
 
 import os
@@ -30,12 +32,11 @@ class AIEngine(ABC):
 
     def __init__(self, name: str, model_name: str) -> None:
         """
-        Initialize an AI engine.
+        Initializes an AI engine.
 
         Args:
             name (str): The name of the AI engine.
             model_name (str): The name of the specific model being used.
-
         """
         self.name = name
         self.model_name = model_name
@@ -46,32 +47,31 @@ class AIEngine(ABC):
         )
 
     def _trim_history(self) -> None:
-        """Keep conversation history within the allowed turn limit."""
+        """Keeps conversation history within the allowed turn limit."""
         max_msgs = self.max_turns * 2
         if len(self.history) > max_msgs:
             self.history = self.history[-max_msgs:]
 
     @abstractmethod
     def call(self, prompt: str) -> str:
-        """Send prompt to the AI and return the response text."""
+        """Sends prompt to the AI and returns the response text."""
         pass
 
     def scrub(self) -> None:
-        """Clear short-term memory (history) while keeping persona."""
-        self.history = []  # Clear history
+        """Clears short-term memory (history) while keeping persona."""
+        self.history = []
         logger.info(f"[*] System: {self.name} history cleared.")
 
     def load_persona(self, prompt_text: str, filename: str) -> None:
         """
-        Set new system prompt (persona) and reset history.
+        Sets new system prompt (persona) and resets history.
 
         Args:
             prompt_text (str): The new system prompt to load.
             filename (str): The filename from which the persona is loaded.
-
         """
         self.system_prompt = prompt_text
-        self.history = []  # Reset history
+        self.history = []
         self._after_persona_loaded()
         logger.info(f"[*] System: {self.name} persona loaded from '{filename}'.")
 
@@ -82,7 +82,7 @@ class AIEngine(ABC):
     @abstractmethod
     def get_client(self) -> Any:
         """
-        Get the underlying AI client instance.
+        Gets the underlying AI client instance.
 
         Returns:
             Any: The API client instance for the specific engine.
@@ -100,13 +100,13 @@ class GeminiEngine(AIEngine):
         client: genai.Client,
     ) -> None:
         """
-        Initialize a Gemini engine.
+        Initializes a Gemini engine.
 
         Args:
             name (str): The name of the AI engine.
             model_name (str): The name of the specific Gemini model being used.
-            client: The Google GenAI client instance to use for communications.
-
+            client (genai.Client): The Google GenAI client instance to use
+                for communications.
         """
         super().__init__(name, model_name)
         self.client = client
@@ -117,7 +117,7 @@ class GeminiEngine(AIEngine):
 
     def get_client(self) -> genai.Client:
         """
-        Get the Google GenAI client instance.
+        Gets the Google GenAI client instance.
 
         Returns:
             genai.Client: The Google GenAI client instance.
@@ -130,7 +130,7 @@ class GeminiEngine(AIEngine):
 
     def _hit_output_limit(self, response: Any, answer_chunk: str) -> bool:
         """
-        Detect whether the response was truncated by output limits.
+        Detects whether the response was truncated by output limits.
 
         Args:
             response: The response object from the Gemini API call.
@@ -138,7 +138,6 @@ class GeminiEngine(AIEngine):
 
         Returns:
             bool: True if output limit was hit, otherwise False.
-
         """
         finish_reason = None
         try:
@@ -161,28 +160,37 @@ class GeminiEngine(AIEngine):
 
     def call(self, prompt: str) -> str:
         """
-        Call the AI engine with a user prompt and return the response.
+        Calls the Gemini model with a user prompt, managing conversation
+        history and implementing auto-continuation for long responses.
 
         Args:
-            prompt (str): The user input to process.
+            prompt (str): The user input to send to the Gemini model.
 
         Returns:
-            str: The AI-generated response text.
+            str: The complete AI-generated response text.
 
+        Raises:
+            Exception: If there is an error during the Gemini API call.
         """
-        self._trim_history()  # Trim history to max allowed length
+        self._trim_history()
 
         contents = []
-        if self.system_prompt:
-            contents.append({"role": "system", "parts": [{"text": self.system_prompt}]})
-
-        # Append historical messages
         for msg in self.history:
             role = "user" if msg["role"] == "user" else "model"
-            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+            contents.append(
+                types.Content(
+                    role=role, parts=[types.Part.from_text(text=msg["content"])]
+                )
+            )
 
-        # Append the current user prompt
-        contents.append({"role": "user", "parts": [{"text": prompt}]})
+        contents.append(
+            types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+        )
+
+        gen_config = types.GenerateContentConfig(
+            max_output_tokens=self.max_output_tokens,
+            system_instruction=self.system_prompt if self.system_prompt else None,
+        )
 
         full_answer = ""
         max_rounds = _get_cfg_int(
@@ -192,62 +200,55 @@ class GeminiEngine(AIEngine):
             config, "MODELS", "auto_continue_tail_chars", fallback=1200
         )
 
-        gen_config = types.GenerateContentConfig(
-            max_output_tokens=self.max_output_tokens,
-        )
-
         client = self.get_client()
 
-        # Loop for multiple rounds of Gemini interaction, if needed
         for round_idx in range(1, max_rounds + 1):
             try:
-                # ★変更7: 新しいSDKの generate_content の呼び出し方です
                 response = client.models.generate_content(
                     model=self.model_name,
                     contents=contents,
                     config=gen_config,
                 )
-                answer_chunk = response.text or ""
+
+                answer_chunk = response.text if response.text else ""
                 full_answer += answer_chunk
 
-                # Check if the output was truncated
                 if self._hit_output_limit(response, answer_chunk):
                     with _console_lock:
                         print(
-                            f"[*] Gemini is continuing (round {round_idx}/{max_rounds})...",
+                            f"[*] Gemini continuing ({round_idx}/{max_rounds})...",
                             end="\r",
                             flush=True,
                         )
 
-                    # 続きを促すためのメッセージを追加
                     contents.append(
-                        {"role": "model", "parts": [{"text": answer_chunk}]}
+                        types.Content(
+                            role="model",
+                            parts=[types.Part.from_text(text=answer_chunk)],
+                        )
                     )
-
-                    eff_tail_chars = max(
-                        300, int(tail_chars * (0.8 ** (round_idx - 1)))
+                    tail = _tail_of(
+                        full_answer,
+                        max(300, int(tail_chars * (0.8 ** (round_idx - 1)))),
                     )
-                    tail = _tail_of(full_answer, eff_tail_chars)
-                    continue_prompt = _make_continue_prompt(tail)
                     contents.append(
-                        {"role": "user", "parts": [{"text": continue_prompt}]}
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_text(text=_make_continue_prompt(tail))
+                            ],
+                        )
                     )
                     continue
 
-                break  # Exit loop if no truncation
-
+                break
             except Exception as e:
-                logger.error(f"Gemini Error: {e}")
+                logger.error(f"Gemini API Error Detail: {e}")
                 raise
 
-        else:
-            # Indicate the response was truncated
-            full_answer += "\n\n[TRUNCATED: auto-continue limit reached]\n"
-
-        # Update conversation history
         self.history.append({"role": "user", "content": prompt})
-        self.history.append({"role": "assistant", "content": full_answer})
-        self._trim_history()  # Trim history after updating
+        self.history.append({"role": "model", "content": full_answer})
+        self._trim_history()
 
         return full_answer
 
@@ -263,14 +264,13 @@ class OpenAIEngine(AIEngine):
         max_tokens_key: str = "openai_max_tokens",
     ) -> None:
         """
-        Initialize an OpenAI-compatible engine.
+        Initializes an OpenAI-compatible engine.
 
         Args:
             name (str): The name of the AI engine.
             model_name (str): The name of the specific OpenAI model being used.
-            client: The OpenAI client instance to use for API calls.
+            client (OpenAI): The OpenAI client instance to use for API calls.
             max_tokens_key (str): The config key for max tokens allowed.
-
         """
         super().__init__(name, model_name)
         self.client = client
@@ -278,7 +278,7 @@ class OpenAIEngine(AIEngine):
 
     def get_client(self) -> OpenAI:
         """
-        Get the OpenAI client instance.
+        Gets the OpenAI client instance.
 
         Returns:
             OpenAI: The OpenAI client instance.
@@ -287,14 +287,17 @@ class OpenAIEngine(AIEngine):
 
     def _create_completion(self, messages: list[ChatCompletionMessageParam]) -> Any:
         """
-        Call chat completions with max_tokens fallback.
+        Calls chat completions with ``max_tokens`` fallback.
+
+        Attempts to create a completion using ``max_tokens`` first. If that
+        fails, falls back to using ``max_completion_tokens``.
 
         Args:
-            messages (list): The messages to send to the chat API.
+            messages (list[ChatCompletionMessageParam]): The messages to send
+                to the chat API.
 
         Returns:
-            response: The response object from the API call.
-
+            Any: The response object from the API call.
         """
         client = self.get_client()
         try:
@@ -304,7 +307,6 @@ class OpenAIEngine(AIEngine):
                 max_tokens=self.max_tokens,
             )
         except Exception:
-            # Fallback for APIs that use max_completion_tokens
             return client.chat.completions.create(
                 model=self.model_name,
                 messages=messages,
@@ -313,14 +315,17 @@ class OpenAIEngine(AIEngine):
 
     def call(self, prompt: str) -> str:
         """
-        Call the AI engine with a user prompt and return the response.
+        Calls the OpenAI engine with a user prompt, managing conversation
+        history and implementing auto-continuation for long responses.
 
         Args:
-            prompt (str): The user input to process.
+            prompt (str): The user input to send to the OpenAI model.
 
         Returns:
-            str: The AI-generated response text.
+            str: The complete AI-generated response text.
 
+        Raises:
+            AIError: If there is an error during the OpenAI API call.
         """
         self._trim_history()
 
@@ -360,8 +365,9 @@ class OpenAIEngine(AIEngine):
 
                     messages.append({"role": "assistant", "content": answer_chunk})
                     tail = _tail_of(full_answer, tail_chars)
-                    continue_prompt = _make_continue_prompt(tail)
-                    messages.append({"role": "user", "content": continue_prompt})
+                    messages.append(
+                        {"role": "user", "content": _make_continue_prompt(tail)}
+                    )
                     continue
 
                 break
@@ -380,13 +386,13 @@ class ClaudeEngine(AIEngine):
 
     def __init__(self, name: str, model_name: str, client: Anthropic) -> None:
         """
-        Initialize a Claude engine.
+        Initializes a Claude engine.
 
         Args:
             name (str): The name of the AI engine.
             model_name (str): The name of the specific Claude model being used.
-            client: The Anthropic client instance to use for communications.
-
+            client (Anthropic): The Anthropic client instance to use for
+                communications.
         """
         super().__init__(name, model_name)
         self.client = client
@@ -396,7 +402,7 @@ class ClaudeEngine(AIEngine):
 
     def get_client(self) -> Anthropic:
         """
-        Get the Anthropic client instance.
+        Gets the Anthropic client instance.
 
         Returns:
             Anthropic: The Anthropic client instance.
@@ -405,18 +411,20 @@ class ClaudeEngine(AIEngine):
 
     def call(self, prompt: str) -> str:
         """
-        Call the AI engine with a user prompt and return the response.
+        Calls the Claude model with a user prompt, managing conversation
+        history and implementing auto-continuation for long responses.
 
         Args:
-            prompt (str): The user input to process.
+            prompt (str): The user input to send to the Claude model.
 
         Returns:
-            str: The AI-generated response text.
+            str: The complete AI-generated response text.
 
+        Raises:
+            AIError: If there is an error during the Claude API call.
         """
         self._trim_history()
 
-        # MessageParam型として構築
         messages: list[MessageParam] = []
         for msg in self.history:
             messages.append(cast(MessageParam, msg))
@@ -439,7 +447,6 @@ class ClaudeEngine(AIEngine):
                     messages=messages,
                 )
 
-                # TextBlockのみを抽出して結合（union-attrエラーの修正）
                 answer_chunk = "".join(
                     block.text
                     for block in response.content
@@ -475,15 +482,24 @@ class ClaudeEngine(AIEngine):
 
 
 def initialize_engines() -> None:
-    """Initialize all AI clients and engine instances using modern SDKs."""
+    """
+    Initializes all AI clients and engine instances using modern SDKs.
+
+    This function clears any existing engine instances, sets up various AI
+    clients (Gemini, OpenAI-compatible, Anthropic) based on configuration
+    and API keys, populates the global ``engines`` dictionary, and ensures
+    required work directories exist.
+
+    Raises:
+        SystemExit: If there is an error during client or engine
+            initialization, the program will exit with status 1.
+    """
     try:
-        # Gemini (new google-genai SDK)
         from google import genai
 
         gemini_api_key = get_api_key("gemini_api_key", "GEMINI_API_KEY")
         genai_client = genai.Client(api_key=gemini_api_key)
 
-        # OpenAI-compatible clients
         from openai import OpenAI
 
         client_gpt = OpenAI(api_key=get_api_key("openai_api_key", "OPENAI_API_KEY"))
@@ -496,14 +512,12 @@ def initialize_engines() -> None:
         )
         client_local = OpenAI(api_key="ollama", base_url=local_base)
 
-        # Anthropic
         from anthropic import Anthropic
 
         client_claude = Anthropic(
             api_key=get_api_key("anthropic_api_key", "ANTHROPIC_API_KEY")
         )
 
-        # Instantiate engines
         engines.clear()
         engines.update(
             {
@@ -540,7 +554,6 @@ def initialize_engines() -> None:
             }
         )
 
-        # Ensure required directories exist
         for d_opt in ["work_efficient", "work_data"]:
             d_default = "prompts" if "efficient" in d_opt else "work_data"
             os.makedirs(config.get("Paths", d_opt, fallback=d_default), exist_ok=True)

@@ -1,7 +1,9 @@
 """
-Parsing utilities for Multi-AI CLI.
+Main entry point for the Multi-AI CLI application.
 
-Handles CLI argument parsing, prompt building, and @sequence step parsing logic.
+This module handles the application's lifecycle, including configuration
+loading, AI engine initialization, interactive command loop, and pipeline
+execution.
 """
 
 import os
@@ -18,89 +20,88 @@ def main() -> None:
     """
     Main entry point for the Multi-AI CLI application.
 
-    Loads configuration, initializes engines, and starts the interactive command loop.
-    It handles user input, command parsing, and command execution in a loop,
-    allowing the user to interact with the AI engines.
+    Loads configuration, initializes engines, and starts the interactive
+    command loop. It handles user input, command parsing (including
+    pipelining with ``->``), and command execution in a loop, allowing
+    the user to interact with the AI engines.
+
+    The application can exit early for ``--version`` or if
+    ``multi_ai_cli.ini`` is not found. It gracefully handles
+    ``KeyboardInterrupt`` and logs unexpected errors during the loop.
+
+    Raises:
+        SystemExit: If ``--version`` is passed or the INI configuration
+            file is missing.
     """
     if "--version" in sys.argv or "-v" in sys.argv:
         print(f"multi-ai version {__version__}")
         sys.exit(0)
 
-    # Check for required configuration file
     ini_path = "multi_ai_cli.ini"
     if not os.path.exists(ini_path):
         print(f"[!] Error: '{ini_path}' not found in the current directory.")
         sys.exit(1)
 
-    # Load configuration and setup logging
-    setup_config(ini_path)  # Load settings from the INI file
-    setup_logger()  # Configure the logger for the application
+    setup_config(ini_path)
+    setup_logger()
 
-    # Initialize AI clients and engines
     from .engines import initialize_engines
 
-    initialize_engines()  # Initialize the available AI engines
+    initialize_engines()
 
-    # Show startup information, including available engines and logging status
     print_welcome_banner(engines, is_log_enabled)
 
     while True:
         try:
-            user_input = input("% ").strip()  # Prompt user for input
+            user_input = input("% ").strip()
 
-            if not user_input:  # Skip empty input
+            if not user_input:
                 continue
-            if user_input.lower() in ["exit", "quit"]:  # Allow user to exit the loop
+            if user_input.lower() in ["exit", "quit"]:
                 logger.info("--- Session Ended ---")
                 break
 
             try:
-                parts = shlex.split(user_input)  # Split user input into command parts
+                parts = shlex.split(user_input)
             except ValueError as e:
-                print(f"[!] Parse error: {e}")  # Handle parsing errors
+                print(f"[!] Parse error: {e}")
                 continue
 
-            if not parts:  # Skip if no parts found
+            if not parts:
                 continue
 
-            command_chain = []  # Prepare to hold command pipeline
-            current_command: list[str] = []  # Temporary holder for the current command
+            command_chain = []
+            current_command: list[str] = []
 
-            # Split user input into commands based on "->"
             for part in parts:
-                if part == "->":  # Command delimiter
-                    if current_command:  # If there is a command to save
-                        command_chain.append(current_command)  # Save current command
-                        current_command = []  # Reset for next command
+                if part == "->":
+                    if current_command:
+                        command_chain.append(current_command)
+                        current_command = []
                 else:
-                    current_command.append(part)  # Add part to the current command
+                    current_command.append(part)
 
-            # Append the last command if it exists
             if current_command:
                 command_chain.append(current_command)
 
-            # Execute the commands in the pipeline sequentially
             for step_idx, cmd_parts in enumerate(command_chain):
                 if len(command_chain) > 1:
                     print(
                         f"\n[*] Pipeline Step {step_idx + 1}/{len(command_chain)}: {' '.join(cmd_parts)}"
                     )
 
-                success = dispatch_command(cmd_parts)  # Execute the command
+                success = dispatch_command(cmd_parts)
 
-                # Stop the pipeline if any command fails
                 if not success and len(command_chain) > 1:
                     print("[!] Pipeline stopped due to an error in the current step.")
                     break
 
         except KeyboardInterrupt:
-            print(
-                "\n[!] Session interrupted. Type 'exit' to quit."
-            )  # Handle keyboard interruption
+            print("\n[!] Session interrupted. Type 'exit' to quit.")
         except Exception as e:
-            print(f"[!] An unexpected error occurred: {e}")  # Handle unexpected errors
-            logger.error(f"Main loop critical error: {e}")  # Log the error
+            print(f"[!] An unexpected error occurred: {e}")
+            logger.error(f"Main loop critical error: {e}")
 
 
 if __name__ == "__main__":
-    main()  # Execute the main function when the script is run
+    main()
