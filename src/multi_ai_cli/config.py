@@ -192,3 +192,17 @@ def initialize_engines() -> None:
     except Exception as e:
         print(f"[!] Startup Error: {e}")
         sys.exit(1)
+
+
+def get_figma_token() -> str:
+    """
+    Retrieves the Figma personal access token from an environment
+    variable (priority) or the INI configuration file.
+
+    Raises:
+        ValueError: If the token is not found in either source.
+
+    Returns:
+        str: The Figma access token.
+    """
+    return get_api_key("figma_access_token", "FIGMA_ACCESS_TOKEN")

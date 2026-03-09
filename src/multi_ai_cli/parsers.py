@@ -23,6 +23,8 @@ VALID_COMMANDS = {
     "scrub",
     "flush",
     "efficient",
+    "figma.pull",
+    "figma.push",
 }
 
 

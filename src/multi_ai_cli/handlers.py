@@ -77,6 +77,16 @@ def dispatch_command(parts: list[str]) -> bool:
     if cmd == "@sh":
         return handle_sh(parts)
 
+    if cmd == "@figma.pull":
+        from .adapters.figma.facade import handle_figma_pull
+
+        return handle_figma_pull(parts)
+
+    if cmd == "@figma.push":
+        from .adapters.figma.facade import handle_figma_push
+
+        return handle_figma_push(parts)
+
     target_key = cmd.replace("@", "")
     if target_key in engines:
         return handle_ai_interaction(parts)
@@ -84,7 +94,7 @@ def dispatch_command(parts: list[str]) -> bool:
     safe_print(f"[!] Unknown command: '{cmd}'")
     safe_print(
         f"    Available: {', '.join('@' + k for k in engines.keys())}, "
-        f"@efficient, @scrub, @sequence, @sh, exit"
+        f"@efficient, @scrub, @sequence, @sh, @figma.pull, @figma.push, exit"
     )
     return False
 
