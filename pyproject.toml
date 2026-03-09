@@ -10,9 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.84.0",
+    "charset-normalizer>=3.4.5",
     "google-genai>=1.66.0",
     "openai>=2.26.0",
     "python-dotenv>=1.2.2",
+    "requests>=2.32.5",
     "types-requests>=2.32.4.20260107",
 ]
 packages = [{ include = "multi_ai_cli", from = "src" }]
@@ -67,6 +69,7 @@ convention = "pep257"
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
+    "pyinstaller>=6.19.0",
     "pytest>=9.0.2",
     "pytest-mock>=3.15.1",
     "ruff>=0.15.5",
