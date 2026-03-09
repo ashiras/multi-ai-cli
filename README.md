@@ -4,17 +4,20 @@
 
 Break free from the browser copy-paste hell. Turn your terminal into a multi-agent AI war room.
 
-**Multi-AI CLI** is a lightweight, zero-friction command-line tool designed to seamlessly orchestrate the world's leading AI engines: **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, **xAI Grok**, and now **Local AI models** (e.g., Ollama).
+**Multi-AI CLI** is a lightweight, zero-friction command-line tool designed to seamlessly orchestrate the world's leading AI engines: **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, **xAI Grok**, **Local AI models** (e.g., Ollama), and now **Figma** for design data integration.
 
 Built on the philosophy of **"Command & Monitor"**, it allows you to iterate, design, and code at the speed of thought. With the introduction of **powerful multi-step workflow orchestration** in v0.9.0, you can now automate complex interactions across AIs. Furthermore, v0.9.1 brought a fundamental shift in I/O behavior towards "UNIX-like predictability," refining how AI responses are saved. By using local files as a "shared blackboard," agents can collaborate, cross-check, and implement complex architectures while you monitor the entire conversation flow in real-time through a dedicated HUD.
 
-Now, with **v0.11.0**, Multi-AI CLI introduces **native shell orchestration (`@sh`)** for direct interaction with your local environment, the ability to integrate **local AI models (Ollama)** for enhanced privacy and customization, and **automatic response continuation** to seamlessly handle lengthy AI outputs. This is a sophisticated AI collaboration environment for developers, designed as a lightweight, hacker-friendly alternative to heavyweight Multi-Agent frameworks.
+Now, with **v0.12.0**, Multi-AI CLI introduces **native shell orchestration (`@sh`)** for direct interaction with your local environment, the ability to integrate **local AI models (Ollama)** for enhanced privacy and customization, **automatic response continuation** to seamlessly handle lengthy AI outputs, and a **Figma Adapter (`@figma`)** to bridge AI and design workflows. This is a sophisticated AI collaboration environment for developers, designed as a lightweight, hacker-friendly alternative to heavyweight Multi-Agent frameworks.
 
-### 🐉 Multi-AI CLI (v0.11.0: Local AI, Shell Orchestration, Auto-Continue Edition)
+### 🐉 Multi-AI CLI (v0.12.0: Figma Adapter, Local AI, Shell Orchestration, Auto-Continue Edition)
 
 ### ✨ Features
 
--   **🎼 Multi-Engine Symphony (5+ AI Engines)**: Instantly switch between `@gemini`, `@gpt`, `@claude`, `@grok`, and the new **`@local`** for self-hosted models, all within the same session.
+-   **🎼 Multi-Engine Symphony (6+ AI Engines)**: Instantly switch between `@gemini`, `@gpt`, `@claude`, `@grok`, `@local`, and the new **`@figma`** for design data, all within the same session.
+-   **🎨 Figma Adapter (@figma)**: Seamlessly integrate AI with Figma design data.
+    *   **`@figma.pull`**: Fetch design files, specific nodes, or pages from Figma's REST API. Use flags like `--file`, `--node`, `--page`, `--depth`, and `--output-format` (`raw-json` or `normalized-json`). Requires `FIGMA_ACCESS_TOKEN`.
+    *   **`@figma.push`**: Send local file content (e.g., Markdown, JSON) to Figma via a plugin bridge. Specify target file (`--file`), page (`--page`), frame (`--frame`), and input format (`--input-format`). This generates a local JSON handoff file for a Figma-side plugin to consume, enabling AI-driven content updates directly into design. Does NOT require `FIGMA_ACCESS_TOKEN`.
 -   **📺 HUD Monitoring (Live Log)**: Monitor the "AI conversation" in a separate terminal window using `tail -f`. Keep your workspace clean and professional.
 -   **📂 Smart File I/O (v0.9.1: Raw-by-Default Write)**: Use `-r` (`--read`) and `-w` (`--write`) flags to interact with local files.
     *   Supports **multiple `-r` inputs**, allowing you to attach several files to your prompt.
@@ -81,6 +84,7 @@ export OPENAI_API_KEY="..."
 export ANTHROPIC_API_KEY="..."
 export GROK_API_KEY="..."
 export LOCAL_API_KEY="ollama" # Usually 'ollama' for default Ollama setups, can be empty
+export FIGMA_ACCESS_TOKEN="..." # Required for @figma.pull
 ```
 
 #### 2. Configuration File (`multi_ai_cli.ini`)
@@ -95,6 +99,7 @@ openai_api_key = ...
 anthropic_api_key = ...
 grok_api_key = ...
 local_api_key = ollama # Usually 'ollama' or empty for local models
+figma_access_token = ... # Required for @figma.pull
 
 [MODELS]
 gemini_model = gemini-2.5-flash
@@ -125,6 +130,10 @@ base_url = http://localhost:11434/v1
 # Default model name for the @local engine
 model = qwen2.5-coder:14b
 
+[FIGMA]
+# Directory where @figma.push will generate handoff JSON files for Figma plugins
+handoff_dir = work_data/figma_handoff
+
 [logging]
 enabled = true
 log_dir = logs
@@ -153,7 +162,7 @@ The basic command structure for interacting with an AI is as follows:
 
 `@<ai_name> <A1_context_words> [-m "message"] [-r file1 -r file2 ...] [-w[:mode] output.txt] [-e]`
 
--   `@<ai_name>`: Specifies the AI engine you want to interact with (`@gemini`, `@gpt`, `@claude`, `@grok`, `@local`).
+-   `@<ai_name>`: Specifies the AI engine you want to interact with (`@gemini`, `@gpt`, `@claude`, `@grok`, `@local`, `@figma`).
 -   `<A1_context_words>`: Any space-separated text immediately following the AI's name, up to the first flag (`-`). This serves as the "title" or primary context for your prompt.
 -   `-m "<message>"`, `--message "<message>"`: Specifies a concrete message body to send to the AI. Use quotes for multi-word messages.
 -   `-r <file>`, `--read <file>`: Attaches the content of a file from your configured `data` directory to the prompt. **Multiple `-r` flags are supported**, each adding a file's content to the prompt.
@@ -183,7 +192,7 @@ When combining different input methods, the final prompt sent to the AI is const
 
 ```bash
 # For updating entire documents (-w:raw behaves the same as -w)
-% @claude "Update the installation steps in README.md, reflecting the v0.11.0 changes, including @local and @sh." -r README.md -w:raw README_updated.md
+% @claude "Update the installation steps in README.md, reflecting the v0.12.0 changes, including @figma." -r README.md -w:raw README_updated.md
 
 # For generating a Python script and extracting only the code
 % @gpt "Write a fast fibonacci function in Python using recursion with memoization." -w:code fibonacci.py
@@ -193,6 +202,60 @@ When combining different input methods, the final prompt sent to the AI is const
 
 # Using the local Ollama model to summarize a document
 % @local "Summarize this long technical document for a non-technical audience." -r long_doc.txt -w summary.md
+```
+
+#### Figma Adapter (`@figma`) - NEW in v0.12.0
+
+The `@figma` adapter allows Multi-AI CLI to interact with Figma design files, pulling data from the Figma API and pushing content via a local plugin bridge for design system integration.
+
+**`@figma.pull`**: Fetch design data from Figma. Requires `FIGMA_ACCESS_TOKEN`.
+
+`@figma.pull --file <file_key> [--node <id>] [--page <name>] [--depth <int>] [--output-format <format>] [-w <output_file>]`
+
+-   `--file <file_key>`: **(Required)** The 22-character key of the Figma file.
+-   `--node <id>`: Fetch a specific node (e.g., a component, frame, or text layer) by its ID. Mutually exclusive with `--page`.
+-   `--page <name>`: Filter the file's content to a specific page by its name. Mutually exclusive with `--node`.
+-   `--depth <int>`: (Optional) The depth of the node tree traversal (default: entire document or node).
+-   `--output-format <format>`: (Optional) `raw-json` (the exact API response) or `normalized-json` (default, a simplified, AI-friendly structure).
+-   `-w <output_file>`: Save the fetched JSON data to a local file in your `data` directory.
+
+**Examples:**
+```bash
+# Pull an entire Figma file and save as normalized JSON
+% @figma.pull --file "YOUR_FILE_KEY" -w design_file.json
+
+# Pull a specific node by ID from a file and save it
+% @figma.pull --file "YOUR_FILE_KEY" --node "NODE_ID" -w my_component_node.json
+
+# Pull the contents of a specific page from a Figma file
+% @figma.pull --file "YOUR_FILE_KEY" --page "Design System" -w design_system_page.json
+
+# Pull raw JSON for debugging or advanced use cases
+% @figma.pull --file "YOUR_FILE_KEY" --output-format raw-json -w raw_design_data.json
+```
+
+**`@figma.push`**: Send local content to Figma for integration via a plugin bridge. Does NOT require `FIGMA_ACCESS_TOKEN`.
+
+`@figma.push -r <input_file> [--file <key>] [--page <name>] [--frame <name>] [--input-format <format>] [-w <summary_file>]`
+
+-   `-r <input_file>`: **(Required)** Path to a local file (e.g., Markdown, JSON) in your `data` directory whose content you want to send.
+-   `--file <key>`: (Optional metadata) The Figma file key the content is intended for.
+-   `--page <name>`: (Optional metadata) The target page name within the Figma file.
+-   `--frame <name>`: (Optional metadata) The target frame name within the page.
+-   `--input-format <format>`: (Optional) Specify the format of the input file (e.g., `markdown`, `json`). Auto-detected from `.md` or `.json` extensions if omitted.
+-   `-w <summary_file>`: Save a JSON summary of the push operation (including the path to the generated handoff file) to your `data` directory.
+
+**Examples:**
+```bash
+# Push a Markdown spec to Figma for a plugin to convert into text layers
+% @figma.push -r component_spec.md --file "YOUR_FILE_KEY" --page "Designs" --frame "Button Component"
+
+# Push JSON data generated by an AI (e.g., a style dictionary)
+% @figma.push -r generated_styles.json --file "YOUR_FILE_KEY" --input-format json -w figma_styles_handoff_summary.json
+
+# Use in a sequence: AI generates content, then pushes to Figma
+# @gpt "Generate a description for a new UI component in markdown format." -w component_desc.md
+# -> @figma.push -r component_desc.md --file "YOUR_FILE_KEY" --page "New Components"
 ```
 
 #### Shell Orchestration (`@sh`) - NEW in v0.11.0
@@ -249,7 +312,7 @@ The `@sh` command allows you to execute shell commands and scripts directly from
 # This allows AI to generate code, then @sh to run it, and AI to review results.
 ```
 
-#### Automatic Response Continuation - NEW in v0.11.0
+#### Automatic Response Continuation - NEW in v0.12.0
 
 This feature enhances your workflow by automatically managing cases where an AI's response is truncated due to `max_tokens` limits. Instead of receiving an incomplete answer, the CLI will:
 
@@ -275,7 +338,7 @@ Adjust `auto_continue_max_rounds` and `auto_continue_tail_chars` in your `multi_
 
 ### 🚀 Workflow Orchestration with @sequence (HAN Syntax)
 
-Move beyond single commands to build sophisticated, multi-agent pipelines. The `@sequence -e` command lets you define a series of AI interactions and shell commands in your preferred editor, leveraging **HAN (Human-Agent-Network) Syntax** for powerful automation.
+Move beyond single commands tobuild sophisticated, multi-agent pipelines. The `@sequence -e` command lets you define a series of AI interactions and shell commands in your preferred editor, leveraging **HAN (Human-Agent-Network) Syntax** for powerful automation.
 
 **Key Concepts:**
 

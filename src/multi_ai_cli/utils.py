@@ -242,6 +242,8 @@ def print_welcome_banner(engines: dict[str, "AIEngine"], is_log_enabled: bool) -
     print("[*]           -w:code <file>  (extract code blocks only)")
     print("[*]           -w:raw <file>   (explicit raw, same as -w)")
     print('[*] Flags:    -r <file> (read, repeatable)  -m "<msg>" (message)')
+    print("[*] Figma:    @figma.pull --file <key> -w design.json")
+    print("[*]           @figma.push -r req.md --file <key> --page Drafts")
 
 
 def _get_cfg_int(

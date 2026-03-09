@@ -4,9 +4,6 @@ set -e
 
 echo "[*] Starting Pipeline..."
 
-echo "[*] Running tests with pytest..."
-uv run pytest
-
 echo "[*] Formatting code with ruff..."
 uv run ruff format .
 
@@ -15,6 +12,9 @@ uv run ruff check . --fix
 
 echo "[*] Type checking with mypy..."
 uv run mypy src
+
+echo "[*] Running tests with pytest..."
+uv run pytest
 
 if [ -f "./scripts/test_scenario.sh" ]; then
     echo "[*] Executing test scenario..."
