@@ -12,7 +12,6 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 
-# Global variables (managed carefully)
 config = configparser.ConfigParser()
 logger = logging.getLogger("MultiAI")
 is_log_enabled = False
@@ -27,11 +26,11 @@ INI_PATH = None
 
 def setup_config(ini_path: str) -> None:
     """
-    Load the INI configuration file into the global config object.
+    Loads the INI configuration file into the global ``config`` object
+    and sets the global ``INI_PATH`` variable to the path of the loaded file.
 
     Args:
         ini_path (str): The path to the INI file to be loaded.
-
     """
     global config, INI_PATH
     config.read(ini_path, encoding="utf-8-sig")
@@ -40,22 +39,22 @@ def setup_config(ini_path: str) -> None:
 
 def setup_logger(no_log: bool = False) -> None:
     """
-    Initialize the logging system based on INI settings and CLI flags.
+    Initializes the logging system based on INI settings and CLI flags.
 
-    This function updates the global logger and the is_log_enabled flag based on
-    the contents of the INI file and provided command line arguments.
+    It clears any existing log handlers, creates the log directory if it
+    doesn't exist, and configures a rotating file handler based on the
+    INI settings. Updates the global ``logger`` and the ``is_log_enabled``
+    flag accordingly.
 
     Args:
-        no_log (bool, optional): If True, logging will be disabled. Defaults to False.
-
+        no_log (bool, optional): If True, logging will be disabled.
+            Defaults to False.
     """
     global logger, is_log_enabled
 
-    # Determine if logging should be enabled
     should_log = config.getboolean("logging", "enabled", fallback=True) and not no_log
     logger.setLevel(logging.DEBUG)
 
-    # Clear existing handlers if any
     if logger.handlers:
         logger.handlers.clear()
 
@@ -66,7 +65,6 @@ def setup_logger(no_log: bool = False) -> None:
         base_filename = config.get("logging", "base_filename", fallback="chat.log")
         log_path = os.path.join(log_dir, base_filename)
 
-        # Configure log rotation settings
         max_bytes = config.getint(
             "logging", "max_bytes", fallback=DEFAULT_LOG_MAX_BYTES
         )
@@ -77,7 +75,6 @@ def setup_logger(no_log: bool = False) -> None:
         log_level_str = config.get("logging", "log_level", fallback="INFO").upper()
         log_level = getattr(logging, log_level_str, logging.INFO)
 
-        # Set up a rotating file handler
         handler = RotatingFileHandler(
             log_path,
             maxBytes=max_bytes,
@@ -86,14 +83,12 @@ def setup_logger(no_log: bool = False) -> None:
         )
         handler.setLevel(log_level)
 
-        # Set the formatting for log messages
         formatter = logging.Formatter(
             "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M:%S"
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     else:
-        # Add a null handler if logging is disabled
         logger.addHandler(logging.NullHandler())
 
     is_log_enabled = should_log
@@ -101,20 +96,20 @@ def setup_logger(no_log: bool = False) -> None:
 
 def get_api_key(opt: str, env_var: str) -> str:
     """
-    Retrieve API key from environment variable (priority) or INI file.
+    Retrieves API key from environment variable (priority) or INI file.
 
-    If the API key is not found in both sources, a ValueError is raised.
+    Raises a ValueError if the API key is not found in both sources.
 
     Args:
         opt (str): The option name to fetch from the INI file.
         env_var (str): The environment variable name to check.
 
     Raises:
-        ValueError: If the API key is not found in either the INI or environment variable.
+        ValueError: If the API key is not found in either the INI or
+            environment variable.
 
     Returns:
         str: The API key for the specified option.
-
     """
     val = os.getenv(env_var) or config.get("API_KEYS", opt, fallback="").strip()
     if not val:
@@ -127,25 +122,22 @@ def get_api_key(opt: str, env_var: str) -> str:
 
 def initialize_engines() -> None:
     """
-    Initialize all AI clients and engine instances.
+    Initializes all AI clients and engine instances.
 
-    This function sets up client instances for various AI engines based on
-    configuration details and environment variables. It populates the global
-    engines dictionary with engine instances.
+    It sets up client instances for various AI engines based on
+    configuration details and environment variables, populates the global
+    ``engines`` dictionary, and creates necessary work directories.
 
     Raises:
         SystemExit: If there is an error during the startup.
-
     """
     global engines
 
     try:
-        # Import necessary client libraries
         from anthropic import Anthropic
         from google import genai
         from openai import OpenAI
 
-        # Configure each AI client with their respective API keys
         client_gemini = genai.Client(
             api_key=get_api_key("gemini_api_key", "GEMINI_API_KEY")
         )
@@ -164,9 +156,7 @@ def initialize_engines() -> None:
         client_local = OpenAI(api_key="ollama", base_url=local_base)
 
         from .engines import ClaudeEngine, GeminiEngine, OpenAIEngine
-        # Other Engine classes can also be imported here if needed
 
-        # Populate the engines dictionary with engine instances
         engines.update(
             {
                 "gemini": GeminiEngine(
@@ -195,7 +185,6 @@ def initialize_engines() -> None:
             }
         )
 
-        # Create necessary directories for work
         for d_opt in ["work_efficient", "work_data"]:
             d_default = "prompts" if "efficient" in d_opt else "work_data"
             os.makedirs(config.get("Paths", d_opt, fallback=d_default), exist_ok=True)

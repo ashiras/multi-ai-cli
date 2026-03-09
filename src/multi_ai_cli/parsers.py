@@ -1,5 +1,6 @@
 """
 Parsing utilities for Multi-AI CLI.
+
 Handles CLI argument parsing, prompt building, and @sequence step parsing.
 """
 
@@ -10,9 +11,8 @@ from dataclasses import dataclass, field
 from .config import config
 from .utils import secure_resolve_path
 
-WRITE_MODE_RAW = "raw"  # Constant for raw write mode
-WRITE_MODE_CODE = "code"  # Constant for code write mode
-# Define valid command keywords
+WRITE_MODE_RAW = "raw"
+WRITE_MODE_CODE = "code"
 VALID_COMMANDS = {
     "gemini",
     "gpt",
@@ -38,18 +38,17 @@ class ParsedInput:
         write_file (str | None): Output filename from -w / -w:code / -w:raw.
         write_mode (str): "raw" or "code".
         use_editor (bool): Whether -e / --edit was used.
-
     """
 
-    a1: str = ""  # Context/title text
-    message: str = ""  # Concatenated message text
+    a1: str = ""
+    message: str = ""
     read_files: list[str] = field(default_factory=list)
-    write_file: str | None = None  # Output file name
-    write_mode: str = WRITE_MODE_RAW  # Write mode, defaults to raw
-    use_editor: bool = False  # Flag indicating if editor was used
+    write_file: str | None = None
+    write_mode: str = WRITE_MODE_RAW
+    use_editor: bool = False
 
     def __post_init__(self) -> None:
-        """Initialize read_files to an empty list if None."""
+        """Initializes read_files to an empty list if None."""
         if self.read_files is None:
             self.read_files = []
 
@@ -64,39 +63,40 @@ class ParsedShInput:
         run_file (str | None): Filename to execute (-r flag).
         write_file (str | None): Output artifact filename (-w flag).
         use_shell (bool): Whether --shell was specified.
-
     """
 
-    command: str | None = None  # Raw command to be executed
-    run_file: str | None = None  # File to run
-    write_file: str | None = None  # Output file name
-    use_shell: bool = False  # Flag indicating shell execution
+    command: str | None = None
+    run_file: str | None = None
+    write_file: str | None = None
+    use_shell: bool = False
 
 
 def _parse_write_flag(token: str) -> tuple[str | None, bool]:
     """
-    Parse write flag variants and return (mode, is_write_flag).
+    Parses write flag variants and returns (mode, is_write_flag).
 
     Supported:
-    - -w, --write          → raw
-    - -w:raw, --write:raw  → raw
-    - -w:code, --write:code → code
+      - ``-w``, ``--write``           → raw
+      - ``-w:raw``, ``--write:raw``   → raw
+      - ``-w:code``, ``--write:code`` → code
+
+    Prints an error message to stdout if an unknown write modifier is
+    encountered.
 
     Args:
         token (str): The token to parse.
 
     Returns:
-        tuple[str | None, bool]: A tuple containing the write mode and a flag indicating if it's a write flag.
-
+        tuple[str | None, bool]: A tuple containing the write mode and a
+            flag indicating if it is a write flag.
     """
-    pattern = r"^(?:-w|--write)(?::(\w+))?$"  # Regex pattern for write flag
-    m = re.match(pattern, token)  # Match against the pattern
+    pattern = r"^(?:-w|--write)(?::(\w+))?$"
+    m = re.match(pattern, token)
     if not m:
-        return None, False  # Return if not a valid write flag
+        return None, False
 
-    modifier = m.group(1)  # Extract modifier
+    modifier = m.group(1)
 
-    # Determine write mode based on the modifier
     if modifier is None or modifier == "raw":
         return WRITE_MODE_RAW, True
     elif modifier == "code":
@@ -108,95 +108,93 @@ def _parse_write_flag(token: str) -> tuple[str | None, bool]:
 
 def parse_cli_input(parts: list[str]) -> ParsedInput | None:
     """
-    Parse command-line tokens into a structured ParsedInput object.
+    Parses command-line tokens into a structured ``ParsedInput`` object.
 
     Supports:
-    - -r / --read <file> (repeatable)
-    - -w / --write <file> [:raw|:code]
-    - -m / --message <text> (repeatable)
-    - -e / --edit
-    Bare tokens → a1 (context/title)
+      - ``-r`` / ``--read`` <file> (repeatable)
+      - ``-w`` / ``--write`` <file> [:raw|:code]
+      - ``-m`` / ``--message`` <text> (repeatable)
+      - ``-e`` / ``--edit``
+      - Bare tokens → a1 (context/title)
+
+    Prints error messages to stdout and returns ``None`` if required
+    arguments are missing or an invalid write modifier is specified.
 
     Args:
         parts (list[str]): List of command-line tokens.
 
     Returns:
-        ParsedInput | None: A ParsedInput object if parsing succeeds, or None if it fails.
-
+        ParsedInput | None: A ``ParsedInput`` object if parsing succeeds,
+            or ``None`` if it fails.
     """
-    parsed = ParsedInput()  # Initialize the ParsedInput object
-    indices_to_skip = {0}  # Skip command itself (e.g. @gemini)
+    parsed = ParsedInput()
+    indices_to_skip = {0}
 
-    i = 1  # Start parsing after the command
+    i = 1
     while i < len(parts):
-        token = parts[i]  # Current token to parse
+        token = parts[i]
 
-        # -r / --read (repeatable)
         if token in ("-r", "--read"):
             if i + 1 >= len(parts):
                 print(f"[!] Flag '{token}' requires a filename argument.")
-                return None  # Error if no filename provided
-            parsed.read_files.append(parts[i + 1])  # Append filename to read_files
-            indices_to_skip.update({i, i + 1})  # Mark indices to skip
-            i += 2  # Move to the next token after the filename
+                return None
+            parsed.read_files.append(parts[i + 1])
+            indices_to_skip.update({i, i + 1})
+            i += 2
             continue
 
-        # -w / --write [:raw|:code]
-        write_mode, is_write = _parse_write_flag(token)  # Parse write flag
+        write_mode, is_write = _parse_write_flag(token)
         if is_write:
             if write_mode is None:
-                return None  # Error if write mode is not valid
+                return None
             if i + 1 >= len(parts):
                 print(f"[!] Flag '{token}' requires a filename argument.")
-                return None  # Error if no filename provided
+                return None
             if parsed.write_file is not None:
                 print("[!] Warning: write flag specified multiple times. Overwriting.")
-            parsed.write_file = parts[i + 1]  # Set write_file
-            parsed.write_mode = write_mode  # Set write_mode
-            indices_to_skip.update({i, i + 1})  # Mark indices to skip
-            i += 2  # Move to the next token after the filename
+            parsed.write_file = parts[i + 1]
+            parsed.write_mode = write_mode
+            indices_to_skip.update({i, i + 1})
+            i += 2
             continue
 
-        # -m / --message (repeatable)
         if token in ("-m", "--message"):
             if i + 1 >= len(parts):
                 print(f"[!] Flag '{token}' requires a text argument.")
-                return None  # Error if no text provided
+                return None
             msg_val = parts[i + 1]
             if parsed.message:
-                parsed.message += " " + msg_val  # Concatenate additional message text
+                parsed.message += " " + msg_val
             else:
-                parsed.message = msg_val  # Set message text
-            indices_to_skip.update({i, i + 1})  # Mark indices to skip
-            i += 2  # Move to the next token after the message
+                parsed.message = msg_val
+            indices_to_skip.update({i, i + 1})
+            i += 2
             continue
 
-        # -e / --edit
         if token in ("-e", "--edit"):
-            parsed.use_editor = True  # Set use_editor to True
-            indices_to_skip.add(i)  # Mark index to skip
-            i += 1  # Move to the next token
+            parsed.use_editor = True
+            indices_to_skip.add(i)
+            i += 1
             continue
 
-        # Bare token → part of a1
-        i += 1  # Move to the next token
+        i += 1
 
-    # Collect remaining tokens as a1 (context)
     a1_tokens = [parts[j] for j in range(len(parts)) if j not in indices_to_skip]
-    parsed.a1 = " ".join(a1_tokens)  # Join remaining tokens into a1
+    parsed.a1 = " ".join(a1_tokens)
 
-    return parsed  # Return the parsed input
+    return parsed
 
 
 def build_ai_prompt(parsed: ParsedInput, editor_content: str | None = None) -> str:
     """
-    Assemble the final prompt from different sources in fixed priority order:
+    Assembles the final prompt from different sources in fixed priority order.
+
+    The priority order is as follows:
+
       1. a1 (bare context/title)
       2. message (-m flags)
       3. editor_content (from -e/--edit)
       4. contents of files from -r flags.
-
-    Raises RuntimeError if file reading fails.
 
     Args:
         parsed (ParsedInput): The parsed input object containing relevant data.
@@ -205,52 +203,48 @@ def build_ai_prompt(parsed: ParsedInput, editor_content: str | None = None) -> s
     Returns:
         str: The assembled prompt.
 
+    Raises:
+        RuntimeError: If reading any file specified by ``-r`` fails.
     """
-    sections = []  # List to hold parts of the prompt
+    sections = []
 
     if parsed.a1.strip():
-        sections.append(parsed.a1.strip())  # Add a1 to the sections if it exists
+        sections.append(parsed.a1.strip())
 
     if parsed.message.strip():
-        sections.append(
-            parsed.message.strip()
-        )  # Add the message to the sections if it exists
+        sections.append(parsed.message.strip())
 
     if editor_content and editor_content.strip():
-        sections.append(editor_content.strip())  # Add editor content if it exists
+        sections.append(editor_content.strip())
 
     if parsed.read_files:
-        file_sections = []  # List to hold the contents of read files
-        for filename in parsed.read_files:  # Iterate over each file
+        file_sections = []
+        for filename in parsed.read_files:
             try:
                 filepath = secure_resolve_path(
                     filename,
                     "data",
                     config=config,
-                )  # Resolve secure path for the file
+                )
                 with open(filepath, encoding="utf-8") as f:
-                    file_content = f.read()  # Read the content of the file
+                    file_content = f.read()
                 file_sections.append(
                     f"--- [File: {filename}] ---\n"
                     f"{file_content}\n"
                     f"--- [End of File: {filename}] ---"
-                )  # Format the file content for the prompt
+                )
             except Exception as e:
-                raise RuntimeError(
-                    f"Error reading input file '{filename}': {e}"
-                )  # Raise error if file read fails
+                raise RuntimeError(f"Error reading input file '{filename}': {e}")
 
         if file_sections:
-            sections.append(
-                "\n\n".join(file_sections)
-            )  # Add all file sections to the prompt
+            sections.append("\n\n".join(file_sections))
 
-    return "\n\n".join(sections)  # Return the assembled prompt
+    return "\n\n".join(sections)
 
 
 def smart_split_steps(text: str) -> list[str]:
     """
-    Split editor content into sequential steps using '->' delimiter,
+    Splits editor content into sequential steps using ``->`` delimiter,
     while respecting quoted strings and escapes.
 
     Args:
@@ -258,196 +252,190 @@ def smart_split_steps(text: str) -> list[str]:
 
     Returns:
         list[str]: A list of split steps.
-
     """
-    steps = []  # List to hold split steps
-    current = []  # List for the current step being built
-    in_quote = None  # Track if currently inside a quote
-    i = 0  # Index for iteration
-    length = len(text)  # Length of the text
+    steps = []
+    current = []
+    in_quote = None
+    i = 0
+    length = len(text)
 
     while i < length:
-        ch = text[i]  # Current character
+        ch = text[i]
 
-        if ch == "\\" and i + 1 < length:  # Handle escape sequences
-            current.append(ch)  # Add backslash to current step
-            current.append(text[i + 1])  # Add the next character
-            i += 2  # Move past the escaped character
+        if ch == "\\" and i + 1 < length:
+            current.append(ch)
+            current.append(text[i + 1])
+            i += 2
             continue
 
-        if ch in ('"', "'"):  # Handle quotes
+        if ch in ('"', "'"):
             if in_quote is None:
-                in_quote = ch  # Entering quote
+                in_quote = ch
             elif in_quote == ch:
-                in_quote = None  # Exiting quote
-            current.append(ch)  # Add quote to current step
-            i += 1  # Move to the next character
+                in_quote = None
+            current.append(ch)
+            i += 1
             continue
 
-        if (
-            in_quote is None and ch == "-" and i + 1 < length and text[i + 1] == ">"
-        ):  # '->' delimiter
-            steps.append("".join(current).strip())  # Save current step
-            current = []  # Reset current step
-            i += 2  # Move past the delimiter
+        if in_quote is None and ch == "-" and i + 1 < length and text[i + 1] == ">":
+            steps.append("".join(current).strip())
+            current = []
+            i += 2
             continue
 
-        current.append(ch)  # Add character to current step
-        i += 1  # Move to the next character
+        current.append(ch)
+        i += 1
 
-    if current:  # If there are remaining characters in the current step
-        steps.append("".join(current).strip())  # Save the remaining step
+    if current:
+        steps.append("".join(current).strip())
 
-    return [s for s in steps if s]  # Return non-empty steps
+    return [s for s in steps if s]
 
 
 def smart_split_parallel(text: str) -> list[str]:
     """
-    Split parallel tasks using '||' while respecting quotes and escapes.
+    Splits parallel tasks using ``||`` while respecting quotes and escapes.
 
     Args:
         text (str): The text content to split into parallel tasks.
 
     Returns:
         list[str]: A list of split parallel tasks.
-
     """
-    segments = []  # List to hold split segments
-    current = []  # List for the current segment being built
-    in_quote = None  # Track if currently inside a quote
-    i = 0  # Index for iteration
-    length = len(text)  # Length of the text
+    segments = []
+    current = []
+    in_quote = None
+    i = 0
+    length = len(text)
 
     while i < length:
-        ch = text[i]  # Current character
+        ch = text[i]
 
-        if ch == "\\" and i + 1 < length:  # Handle escape sequences
-            current.append(ch)  # Add backslash to current segment
-            current.append(text[i + 1])  # Add the next character
-            i += 2  # Move past the escaped character
+        if ch == "\\" and i + 1 < length:
+            current.append(ch)
+            current.append(text[i + 1])
+            i += 2
             continue
 
-        if ch in ('"', "'"):  # Handle quotes
+        if ch in ('"', "'"):
             if in_quote is None:
-                in_quote = ch  # Entering quote
+                in_quote = ch
             elif in_quote == ch:
-                in_quote = None  # Exiting quote
-            current.append(ch)  # Add quote to current segment
-            i += 1  # Move to the next character
+                in_quote = None
+            current.append(ch)
+            i += 1
             continue
 
-        if (
-            in_quote is None and ch == "|" and i + 1 < length and text[i + 1] == "|"
-        ):  # '||' delimiter
-            segments.append("".join(current).strip())  # Save current segment
-            current = []  # Reset current segment
-            i += 2  # Move past the delimiter
+        if in_quote is None and ch == "|" and i + 1 < length and text[i + 1] == "|":
+            segments.append("".join(current).strip())
+            current = []
+            i += 2
             continue
 
-        current.append(ch)  # Add character to current segment
-        i += 1  # Move to the next character
+        current.append(ch)
+        i += 1
 
-    if current:  # If there are remaining characters in the current segment
-        segments.append("".join(current).strip())  # Save the remaining segment
+    if current:
+        segments.append("".join(current).strip())
 
-    return [s for s in segments if s]  # Return non-empty segments
+    return [s for s in segments if s]
 
 
 def normalize_step(step_text: str) -> str:
     """
-    Normalize raw step text: remove comments, strip whitespace, collapse spaces.
+    Normalizes raw step text by removing comments, stripping whitespace,
+    and collapsing consecutive spaces.
 
     Args:
         step_text (str): The raw text of the step to normalize.
 
     Returns:
         str: The normalized step text.
-
     """
-    lines = step_text.splitlines()  # Split step text into lines
-    filtered = []  # List to hold filtered lines
+    lines = step_text.splitlines()
+    filtered = []
     for line in lines:
-        stripped = line.strip()  # Strip leading/trailing whitespace
-        if not stripped or stripped.startswith("#"):  # Ignore empty lines and comments
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        filtered.append(stripped)  # Add valid line to filtered list
+        filtered.append(stripped)
 
-    normalized = " ".join(filtered)  # Join filtered lines into a single string
-    while "  " in normalized:  # Collapse multiple spaces
+    normalized = " ".join(filtered)
+    while "  " in normalized:
         normalized = normalized.replace("  ", " ")
-    return normalized.strip()  # Return the final normalized step
+    return normalized.strip()
 
 
 def detect_parallel_block(normalized_text: str) -> tuple[bool, str]:
     """
-    Check if normalized text is a parallel block wrapped in [ ... ].
+    Checks if normalized text is a parallel block wrapped in ``[`` ... ``]``.
 
     Args:
         normalized_text (str): The normalized text to check.
 
     Returns:
-        tuple[bool, str]: Tuple indicating if it's a parallel block and the inner text.
-
+        tuple[bool, str]: A tuple where the first element indicates if it
+            is a parallel block and the second element is the inner text.
     """
-    stripped = normalized_text.strip()  # Strip whitespace
-    if stripped.startswith("[") and stripped.endswith("]"):  # Check for parallel block
-        return True, stripped[1:-1].strip()  # Return inner text without brackets
-    return False, stripped  # Return False if not a parallel block
+    stripped = normalized_text.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        return True, stripped[1:-1].strip()
+    return False, stripped
 
 
 def parse_sequence_steps(editor_content: str) -> list[list[list[str]]] | None:
     """
-    Parse full editor content into nested list of tokenized commands.
+    Parses full editor content into a nested list of tokenized commands.
+
+    Prints error messages to stdout and returns ``None`` if an empty task,
+    parse error, or unknown command is encountered during step processing.
+
+    Args:
+        editor_content (str): The raw editor content defining the sequence.
 
     Returns:
         list[list[list[str]]] | None: An outer list of sequential steps,
-            each containing middle lists of parallel tasks, and inner lists of tokens,
-            or None if parsing/validation fails.
-
+            each containing middle lists of parallel tasks, and inner lists
+            of tokens, or ``None`` if parsing/validation fails.
     """
-    raw_steps = smart_split_steps(editor_content)  # Split editor content into raw steps
+    raw_steps = smart_split_steps(editor_content)
 
-    parsed_steps = []  # List to hold parsed steps
-    global_step_idx = 0  # Global step index for error reporting
+    parsed_steps = []
+    global_step_idx = 0
 
     for raw in raw_steps:
-        normalized = normalize_step(raw)  # Normalize the raw step
+        normalized = normalize_step(raw)
         if not normalized:
-            continue  # Skip empty normalized steps
+            continue
 
-        global_step_idx += 1  # Increment step index
+        global_step_idx += 1
 
-        is_parallel, inner_text = detect_parallel_block(
-            normalized
-        )  # Check if step is parallel
+        is_parallel, inner_text = detect_parallel_block(normalized)
 
         if is_parallel:
-            # Handle parallel commands
-            parallel_segments = smart_split_parallel(inner_text)  # Split parallel tasks
-            parallel_tasks = []  # List to hold parallel tasks
+            parallel_segments = smart_split_parallel(inner_text)
+            parallel_tasks = []
 
             for seg_idx, segment in enumerate(parallel_segments, 1):
-                seg_normalized = normalize_step(segment)  # Normalize the segment
+                seg_normalized = normalize_step(segment)
                 if not seg_normalized:
                     print(
                         f"[!] Step {global_step_idx}, parallel task {seg_idx}: Empty task."
                     )
-                    return None  # Return None if empty segment
+                    return None
 
                 try:
-                    tokens = shlex.split(
-                        seg_normalized
-                    )  # Tokenize the normalized segment
+                    tokens = shlex.split(seg_normalized)
                 except ValueError as e:
                     print(
                         f"[!] Step {global_step_idx}, parallel task {seg_idx}: Parse error: {e}"
                     )
-                    return None  # Return None if tokenization fails
+                    return None
 
                 if not tokens:
-                    continue  # Skip empty tokens
+                    continue
 
-                cmd_key = tokens[0].lower().replace("@", "")  # Normalize command
+                cmd_key = tokens[0].lower().replace("@", "")
                 if cmd_key not in VALID_COMMANDS:
                     print(
                         f"[!] Step {global_step_idx}, parallel task {seg_idx}: Unknown command '{tokens[0]}'"
@@ -455,101 +443,102 @@ def parse_sequence_steps(editor_content: str) -> list[list[list[str]]] | None:
                     print(
                         f"    Available: {', '.join('@' + c for c in sorted(VALID_COMMANDS))}"
                     )
-                    return None  # Return None if invalid command
+                    return None
 
                 if not tokens[0].startswith("@"):
-                    tokens[0] = "@" + tokens[0]  # Prefix command with '@'
+                    tokens[0] = "@" + tokens[0]
 
-                parallel_tasks.append(tokens)  # Add tokens to the parallel tasks
+                parallel_tasks.append(tokens)
 
             if not parallel_tasks:
                 print(f"[!] Step {global_step_idx}: No valid tasks in parallel block.")
-                return None  # Return None if no valid tasks
+                return None
 
-            parsed_steps.append(parallel_tasks)  # Append parallel tasks to the result
+            parsed_steps.append(parallel_tasks)
 
         else:
-            # Handle sequential commands
             try:
-                tokens = shlex.split(normalized)  # Tokenize the normalized step
+                tokens = shlex.split(normalized)
             except ValueError as e:
                 print(f"[!] Step {global_step_idx}: Parse error: {e}")
-                return None  # Return None if tokenization fails
+                return None
 
             if not tokens:
-                continue  # Skip empty tokens
+                continue
 
-            cmd_key = tokens[0].lower().replace("@", "")  # Normalize command
+            cmd_key = tokens[0].lower().replace("@", "")
             if cmd_key not in VALID_COMMANDS:
                 print(f"[!] Step {global_step_idx}: Unknown command '{tokens[0]}'")
                 print(
                     f"    Available: {', '.join('@' + c for c in sorted(VALID_COMMANDS))}"
                 )
-                return None  # Return None if invalid command
+                return None
 
             if not tokens[0].startswith("@"):
-                tokens[0] = "@" + tokens[0]  # Prefix command with '@'
+                tokens[0] = "@" + tokens[0]
 
-            parsed_steps.append([tokens])  # Append tokens as a new step
+            parsed_steps.append([tokens])
 
-    return parsed_steps  # Return the list of parsed sequence steps
+    return parsed_steps
 
 
 def _parse_sh_input(parts: list[str]) -> ParsedShInput | None:
     """
-    Parse @sh command tokens into ParsedShInput.
+    Parses @sh command tokens into ``ParsedShInput``.
 
-    Syntax: @sh ["command"] [-r file] [-w output] [--shell]
+    Syntax: ``@sh ["command"] [-r file] [-w output] [--shell]``
+
+    Prints error messages to stdout and returns ``None`` if required
+    arguments are missing, flags are specified multiple times, or no
+    command/file is specified.
 
     Args:
         parts (list[str]): The list of command tokens.
 
     Returns:
-        ParsedShInput | None: A ParsedShInput object if parsing succeeds, or None if it fails.
-
+        ParsedShInput | None: A ``ParsedShInput`` object if parsing
+            succeeds, or ``None`` if it fails.
     """
-    parsed = ParsedShInput()  # Initialize the ParsedShInput object
-    bare_tokens = []  # List to hold bare command tokens
+    parsed = ParsedShInput()
+    bare_tokens = []
 
-    i = 1  # Skip '@sh'
+    i = 1
     while i < len(parts):
-        token = parts[i]  # Current token to parse
+        token = parts[i]
 
         if token in ("-r", "--read"):
             if i + 1 >= len(parts):
                 print(f"[!] @sh: Flag '{token}' requires a filename argument.")
-                return None  # Error if no filename provided
+                return None
             if parsed.run_file is not None:
                 print("[!] @sh: -r specified more than once.")
-            parsed.run_file = parts[i + 1]  # Set run_file to the next token
-            i += 2  # Move to the next token after the filename
+            parsed.run_file = parts[i + 1]
+            i += 2
             continue
 
         if token in ("-w", "--write"):
             if i + 1 >= len(parts):
                 print(f"[!] @sh: Flag '{token}' requires a filename argument.")
-                return None  # Error if no filename provided
+                return None
             if parsed.write_file is not None:
                 print("[!] @sh: -w specified more than once.")
-            parsed.write_file = parts[i + 1]  # Set write_file to the next token
-            i += 2  # Move to the next token after the filename
+            parsed.write_file = parts[i + 1]
+            i += 2
             continue
 
         if token == "--shell":
-            parsed.use_shell = True  # Set use_shell to True if --shell specified
-            i += 1  # Move to the next token
+            parsed.use_shell = True
+            i += 1
             continue
 
-        bare_tokens.append(token)  # Add non-flag token to bare_tokens
-        i += 1  # Move to the next token
+        bare_tokens.append(token)
+        i += 1
 
     if bare_tokens:
-        parsed.command = " ".join(bare_tokens)  # Join bare tokens into a command string
+        parsed.command = " ".join(bare_tokens)
 
-    if (
-        not parsed.command and not parsed.run_file
-    ):  # Check if both command and run_file are empty
+    if not parsed.command and not parsed.run_file:
         print("[!] @sh: No command or file specified.")
-        return None  # Return None if neither specified
+        return None
 
-    return parsed  # Return the parsed input object
+    return parsed

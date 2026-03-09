@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "multi-ai-cli"
-version = "0.11.2"
+version = "0.11.3"
 description = "A command-line interface for multi-AI orchestration and structured prompt workflows"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -67,5 +67,6 @@ convention = "pep257"
 dev = [
     "mypy>=1.19.1",
     "pytest>=9.0.2",
+    "pytest-mock>=3.15.1",
     "ruff>=0.15.5",
 ]

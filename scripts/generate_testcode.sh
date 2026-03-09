@@ -1,25 +1,49 @@
 #!/bin/bash
+set -euo pipefail
 
-PROMPT="Analyze this Python code and write comprehensive unit tests using 'pytest'. Strictly follow these rules:
-1. Analyze the actual code logic, branches, and return values to determine necessary test cases. DO NOT write superficial tests.
-2. Test both 'happy paths' and 'edge cases' (e.g., exceptions, invalid inputs, missing files).
-3. Strictly isolate tests. You MUST mock all external dependencies (e.g., file system, 'os', 'sys.argv', 'input()', network calls) using 'unittest.mock' or 'pytest' fixtures.
-4. Structure every test strictly using the Arrange-Act-Assert (AAA) pattern. You MUST include exactly these three inline comments in every single test function: '# Arrange', '# Act', and '# Assert'.
-5. Use highly descriptive test names following the pattern: 'test_<function_name>_<condition>_<expected_result>'.
-6. Write all tests strictly in English. DO NOT add any other inline comments explaining 'What' the code does. Only add comments to explain 'Why' a specific complex mock or test data is used.
-Return only the valid, runnable test Python code without any markdown formatting blocks."
+TEST_PROMPT="Role: Role:
+You are an expert Python QA Engineer specializing in pytest and refactoring unit tests for CLI applications.
+Task:
+Review the existing unit test errors and refactor the test suite to be compatible with pytest.
+Context & Setup:
+- Target Module: Assume the source code is imported as from multi_ai_cli import (config) as app_config.
+- Primary Goal: Regression prevention.
+- Testing Strategy: Black-box testing only.
+Testing Depth & Coverage Constraints:
+- C0 (Statement Coverage): Ensure \"Happy Paths\" (main execution flows) are functional. This is the priority.
+- C1 (Branch Coverage): It is sufficient to cover only one direction of a branch.
+- C2 / MC/DC (Condition/Multiple Condition): Do NOT perform these.
+- Coverage Metrics: Do not worry about specific percentage targets or high-coverage benchmarks. The focus is on basic operational stability.
+Technical Stack:
+- The environment uses the following libraries:
+- Production: anthropic, google-genai, openai, python-dotenv
+- Development/Testing: pytest, pytest-mock (for mocking API calls), mypy, ruff
+Output Requirement:
+Provide the corrected pytest code that satisfies the \"minimalist coverage\" criteria mentioned above, ensuring all external AI SDK calls are appropriately mocked using pytest-mock.
+"
 
-FILES=("config.py" "engines.py" "handlers.py" "main.py" "parsers.py" "utils.py" "version.py")
+FILES=("config.py" "parsers.py" "utils.py" "main.py" "handlers.py" "engines.py" "version.py")
 
-mkdir -p tests
+mkdir -p prompts
+mkdir -p work_data/src
+mkdir -p work_data/tests_unit
+
+echo "$TEST_PROMPT" > prompts/test_prompt.txt
 
 uv run multi-ai << EOF
-@efficient all "$PROMPT"
+@efficient gemini test_prompt.txt
 $(for f in "${FILES[@]}"; do
-echo "@sh cat src/multi_ai_cli/$f -w r.txt -> @gpt -r r.txt -w:code tests/test_$f"
+    BASENAME="${f%.py}"
+    SRC_FILE="src/${BASENAME}.txt"
+    TEST_FILE="tests_unit/test_$f"
+    TEST_FILE_OUT="tests_unit/test_out_$f"
+
+    CMD="@sh cat src/multi_ai_cli/$f -w $SRC_FILE"
+    CMD="$CMD -> @gemini -r $SRC_FILE -r error.txt -r $TEST_FILE -w:code $TEST_FILE_OUT"
+
+    echo "$CMD"
 done)
 exit
 EOF
-SKIP
 
-echo "Test generation complete! Check the 'tests/' directory."
+echo "Test generation complete! Check 'work_data/tests_unit/'."

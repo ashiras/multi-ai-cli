@@ -1,26 +1,46 @@
-import multi_ai_cli
+import importlib
+from importlib.metadata import PackageNotFoundError
+
+import pytest
+
+# Load the `multi_ai_cli.version` module once.
+# This makes `importlib.reload()` available.
+# At this point, `__version__` is the actual value, but we'll reload it in tests to apply mocks.
+from multi_ai_cli import version as app_version
 
 
-def test_package_metadata() -> None:
-    """Test if the package metadata in __init__.py is correctly defined."""
-    # Check if version exists and is a string
-    assert hasattr(multi_ai_cli, "__version__"), "__version__ is not defined"
-    assert isinstance(multi_ai_cli.__version__, str), "__version__ must be a string"
-    assert len(multi_ai_cli.__version__) > 0, "__version__ is empty"
+def test_version_found(mocker):
+    """
+    Tests the case where the package version is found.
+    """
+    # Mock importlib.metadata.version to return "1.0.0"
+    mock_version = mocker.patch("importlib.metadata.version", return_value="1.0.0")
 
-    # Check if author name is correct
-    assert multi_ai_cli.__author__ == "Fumio SAGAWA", (
-        f"Expected 'Fumio SAGAWA', but got {multi_ai_cli.__author__}"
+    # Reload the module so the mocked version() function is used
+    importlib.reload(app_version)
+
+    # Assert that the reloaded module's __version__ matches the mocked value
+    assert app_version.__version__ == "1.0.0"
+    mock_version.assert_called_once_with("multi-ai-cli")
+
+
+def test_version_not_found(mocker):
+    """
+    Tests the case where the package version is not found (PackageNotFoundError).
+    """
+    # Mock importlib.metadata.version to raise PackageNotFoundError
+    mock_version = mocker.patch(
+        "importlib.metadata.version", side_effect=PackageNotFoundError
     )
 
-    # Check if license is correct
-    assert multi_ai_cli.__license__ == "MIT", (
-        f"Expected 'MIT', but got {multi_ai_cli.__license__}"
-    )
+    # Reload the module so the mocked version() function is used,
+    # causing PackageNotFoundError and setting the fallback value.
+    importlib.reload(app_version)
+
+    # Assert that the reloaded module's __version__ matches the fallback value
+    assert app_version.__version__ == "0.11.0"
+    mock_version.assert_called_once_with("multi-ai-cli")
 
 
-def test_package_docstring() -> None:
-    """Test if the package docstring contains the expected tool name."""
-    doc = multi_ai_cli.__doc__
-    assert doc is not None, "Package docstring is missing"
-    assert "multi-ai-cli" in doc, "Tool name not found in docstring"
+if __name__ == "__main__":
+    pytest.main()

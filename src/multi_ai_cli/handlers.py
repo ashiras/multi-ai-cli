@@ -1,6 +1,8 @@
 """
 Command handlers for Multi-AI CLI.
-Processes user commands (@model, @sh, @sequence, @scrub, etc.) and dispatches them.
+
+Processes user commands (@model, @sh, @sequence, @scrub, etc.) and
+dispatches them.
 """
 
 import json
@@ -47,8 +49,6 @@ WRITE_MODE_CODE = "code"
 
 def dispatch_command(parts: list[str]) -> bool:
     """
-    Main command dispatcher.
-
     Routes the parsed command tokens to the appropriate handler.
 
     Args:
@@ -56,14 +56,12 @@ def dispatch_command(parts: list[str]) -> bool:
 
     Returns:
         bool: True if command succeeded, False otherwise.
-
     """
     if not parts:
         return False
 
     cmd = parts[0].lower()
 
-    # Handle special commands
     if cmd in ["@scrub", "@flush"]:
         handle_scrub(parts)
         return True
@@ -79,7 +77,6 @@ def dispatch_command(parts: list[str]) -> bool:
     if cmd == "@sh":
         return handle_sh(parts)
 
-    # AI model commands (@gemini, @gpt, etc.)
     target_key = cmd.replace("@", "")
     if target_key in engines:
         return handle_ai_interaction(parts)
@@ -94,11 +91,10 @@ def dispatch_command(parts: list[str]) -> bool:
 
 def handle_scrub(parts: list[str]) -> None:
     """
-    Handle @scrub / @flush command to clear engine history.
+    Handles @scrub / @flush command to clear engine history.
 
     Args:
         parts (list[str]): List of command parts.
-
     """
     target = parts[1].lower() if len(parts) > 1 else "all"
     valid_targets = set(engines.keys()) | {"all"}
@@ -115,11 +111,10 @@ def handle_scrub(parts: list[str]) -> None:
 
 def handle_efficient(parts: list[str]) -> None:
     """
-    Handle @efficient command to load persona files.
+    Handles @efficient command to load persona files.
 
     Args:
         parts (list[str]): List of command parts.
-
     """
     if len(parts) < 2:
         print("[!] Usage: @efficient [target/all] <filename.txt>")
@@ -151,7 +146,7 @@ def handle_efficient(parts: list[str]) -> None:
 
 def handle_ai_interaction(parts: list[str]) -> bool:
     """
-    Handle interaction with a specific AI model (@gemini "prompt" ...).
+    Handles interaction with a specific AI model (@gemini "prompt" ...).
 
     Supports flags: -m, -r, -w[:raw|:code], -e
 
@@ -159,8 +154,8 @@ def handle_ai_interaction(parts: list[str]) -> bool:
         parts (list[str]): List of command parts to interact with AI.
 
     Returns:
-        bool: True if interaction succeeded, False otherwise.
-
+        bool: True if interaction succeeded, False otherwise. Returns
+            False if prompt building fails or an AI engine error occurs.
     """
     target_key = parts[0].lower().replace("@", "")
     engine = engines.get(target_key)
@@ -169,19 +164,16 @@ def handle_ai_interaction(parts: list[str]) -> bool:
         safe_print(f"[!] Engine '{target_key}' not found.")
         return False
 
-    # Parse input
     parsed: ParsedInput | None = parse_cli_input(parts)
     if parsed is None:
         return False
 
-    # Editor mode
     editor_content = None
     if parsed.use_editor:
         editor_content = open_editor_for_prompt()
         if editor_content is None:
             return False
 
-    # Build prompt
     try:
         prompt_main = build_ai_prompt(parsed, editor_content)
     except Exception as e:
@@ -192,7 +184,6 @@ def handle_ai_interaction(parts: list[str]) -> bool:
         safe_print("[!] No prompt to send. Provide text, use -e, -m, or -r.")
         return False
 
-    # Send to AI
     logger.info(f"@User ({engine.name}): {prompt_main}")
     with _console_lock:
         print(f"[*] {engine.name} is thinking...", end="\r", flush=True)
@@ -236,19 +227,20 @@ def handle_ai_interaction(parts: list[str]) -> bool:
 
 def handle_sh(parts: list[str]) -> bool:
     """
-    Handle @sh command: local shell execution with artifact capture.
+    Handles @sh command: local shell execution with artifact capture.
 
     Args:
         parts (list[str]): List of command parts.
 
     Returns:
         bool: True if shell command execution succeeded, False otherwise.
+            Returns False if command parsing fails, the command is not
+            found, times out, or another execution error occurs.
 
-    Syntax examples:
-    @sh "ls -la"
-    @sh -r script.py -w output.json
-    @sh --shell "echo $HOME | grep user" -w result.md
-
+    Examples:
+        >>> handle_sh(["@sh", "ls -la"])
+        >>> handle_sh(["@sh", "-r", "script.py", "-w", "output.json"])
+        >>> handle_sh(["@sh", "--shell", "echo $HOME | grep user", "-w", "result.md"])
     """
     parsed: ParsedShInput | None = _parse_sh_input(parts)
     if parsed is None:
@@ -334,7 +326,6 @@ def handle_sh(parts: list[str]) -> bool:
             print(display_stderr)
             print("--- end stderr ---")
 
-    # Write artifact if requested
     if parsed.write_file:
         try:
             out_path = secure_resolve_path(parsed.write_file, "data", config=config)
@@ -369,11 +360,19 @@ def handle_sh(parts: list[str]) -> bool:
 
 def handle_sequence(parts: list[str]) -> None:
     """
-    Handle @sequence command (requires -e/--edit flag).
+    Handles @sequence command (requires -e/--edit flag).
+
+    This command allows executing a series of commands defined in a
+    temporary editor. Steps can be executed sequentially or in parallel.
+    If any step fails, the sequence halts immediately (cascade stop) and
+    subsequent steps are skipped.
 
     Args:
-        parts (list[str]): List of command parts.
+        parts (list[str]): List of command parts, expecting the ``-e`` or
+            ``--edit`` flag.
 
+    Examples:
+        >>> handle_sequence(["@sequence", "-e"])
     """
     has_edit = any(t in ("-e", "--edit") for t in parts[1:])
 
@@ -462,16 +461,15 @@ def handle_sequence(parts: list[str]) -> None:
     logger.info("[*] @sequence: Pipeline completed successfully.")
 
 
-def _resolve_runner(filename: str) -> str | list[str] | None:
+def _resolve_runner(filename: str) -> list[str] | None:
     """
-    Resolve the appropriate runner for the given filename's extension.
+    Resolves the appropriate runner for the given filename's extension.
 
     Args:
         filename (str): The name of the file for which to resolve the runner.
 
     Returns:
         list[str] | None: List of runner command or None if not found.
-
     """
     ext = Path(filename).suffix.lower()
     if Path(filename).suffix == ".R":
@@ -479,18 +477,20 @@ def _resolve_runner(filename: str) -> str | list[str] | None:
     return RUNNER_MAP.get(ext)
 
 
-def _build_sh_command(parsed: "ParsedShInput") -> tuple[list[str] | str, bool] | None:
+def _build_sh_command(parsed: ParsedShInput) -> tuple[list[str] | str, bool] | None:
     """
-    Build the final command list or string from ParsedShInput.
+    Builds the final command list or string from ``ParsedShInput``.
 
-    Resolves runner for -r files or uses shlex for direct commands.
+    Resolves runner for ``-r`` files or uses ``shlex`` for direct commands.
 
     Args:
         parsed (ParsedShInput): Parsed shell input.
 
     Returns:
-        tuple | None: Tuple of command and shell usage flag or None if failed.
-
+        tuple[list[str] | str, bool] | None: A tuple containing the command
+            (as a list of strings or a single string) and a boolean
+            indicating whether to use a shell, or None if command
+            building failed.
     """
     if parsed.run_file and parsed.command:
         print("[!] @sh: Cannot use both -r <file> and direct command.")
@@ -550,18 +550,18 @@ def _format_artifact_text(
     cmd_display: str, exit_code: int, stdout: str, stderr: str, duration_ms: float
 ) -> str:
     """
-    Format shell command execution artifact as plain text.
+    Formats shell command execution artifact as plain text.
 
     Args:
         cmd_display (str): Command that was executed.
         exit_code (int): Exit code of the command.
         stdout (str): Standard output from the command.
         stderr (str): Standard error from the command.
-        duration_ms (float): Duration of the command execution in milliseconds.
+        duration_ms (float): Duration of the command execution in
+            milliseconds.
 
     Returns:
         str: Formatted artifact as text.
-
     """
     status = "SUCCESS" if exit_code == 0 else "FAILURE"
     lines = [
@@ -590,18 +590,18 @@ def _format_artifact_json(
     cmd_display: str, exit_code: int, stdout: str, stderr: str, duration_ms: float
 ) -> str:
     """
-    Format shell command execution artifact as JSON.
+    Formats shell command execution artifact as JSON.
 
     Args:
         cmd_display (str): Command that was executed.
         exit_code (int): Exit code of the command.
         stdout (str): Standard output from the command.
         stderr (str): Standard error from the command.
-        duration_ms (float): Duration of the command execution in milliseconds.
+        duration_ms (float): Duration of the command execution in
+            milliseconds.
 
     Returns:
         str: Formatted artifact as JSON.
-
     """
     artifact = {
         "command": cmd_display,
