@@ -5,8 +5,6 @@ Contains base abstract class and concrete engines for Gemini, GPT,
 Claude, Grok, and local models.
 """
 
-import os
-import sys
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
@@ -17,8 +15,9 @@ from google.genai import types
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
-from .config import DEFAULT_MAX_HISTORY_TURNS, config, engines, get_api_key, logger
-from .utils import _console_lock, _get_cfg_int, _make_continue_prompt, _tail_of
+from .config import DEFAULT_MAX_HISTORY_TURNS, logger
+from .registry import runtime_settings
+from .utils import _console_lock, _make_continue_prompt, _tail_of
 
 
 class AIError(Exception):
@@ -42,9 +41,8 @@ class AIEngine(ABC):
         self.model_name = model_name
         self.system_prompt = ""
         self.history: list[dict[str, str]] = []
-        self.max_turns = config.getint(
-            "MODELS", "max_history_turns", fallback=DEFAULT_MAX_HISTORY_TURNS
-        )
+        # max_turns is overwritten in _build_agent_engines() in config.py
+        self.max_turns = DEFAULT_MAX_HISTORY_TURNS
 
     def _trim_history(self) -> None:
         """Keeps conversation history within the allowed turn limit."""
@@ -110,10 +108,8 @@ class GeminiEngine(AIEngine):
         """
         super().__init__(name, model_name)
         self.client = client
-        self.max_output_tokens = _get_cfg_int(
-            config, "MODELS", "gemini_max_output_tokens", fallback=8192
-        )
-        self.model_name = model_name
+        # max_output_tokens is externally configured from _build_agent_engines()
+        self.max_output_tokens = 8192
 
     def get_client(self) -> genai.Client:
         """
@@ -193,12 +189,8 @@ class GeminiEngine(AIEngine):
         )
 
         full_answer = ""
-        max_rounds = _get_cfg_int(
-            config, "MODELS", "auto_continue_max_rounds", fallback=5
-        )
-        tail_chars = _get_cfg_int(
-            config, "MODELS", "auto_continue_tail_chars", fallback=1200
-        )
+        max_rounds = runtime_settings.auto_continue_max_rounds
+        tail_chars = runtime_settings.auto_continue_tail_chars
 
         client = self.get_client()
 
@@ -216,7 +208,7 @@ class GeminiEngine(AIEngine):
                 if self._hit_output_limit(response, answer_chunk):
                     with _console_lock:
                         print(
-                            f"[*] Gemini continuing ({round_idx}/{max_rounds})...",
+                            f"[*] {self.name} continuing ({round_idx}/{max_rounds})...",
                             end="\r",
                             flush=True,
                         )
@@ -261,7 +253,6 @@ class OpenAIEngine(AIEngine):
         name: str,
         model_name: str,
         client: OpenAI,
-        max_tokens_key: str = "openai_max_tokens",
     ) -> None:
         """
         Initializes an OpenAI-compatible engine.
@@ -270,11 +261,11 @@ class OpenAIEngine(AIEngine):
             name (str): The name of the AI engine.
             model_name (str): The name of the specific OpenAI model being used.
             client (OpenAI): The OpenAI client instance to use for API calls.
-            max_tokens_key (str): The config key for max tokens allowed.
         """
         super().__init__(name, model_name)
         self.client = client
-        self.max_tokens = _get_cfg_int(config, "MODELS", max_tokens_key, fallback=4096)
+        # max_tokens is externally configured from _build_agent_engines()
+        self.max_tokens = 4096
 
     def get_client(self) -> OpenAI:
         """
@@ -339,12 +330,8 @@ class OpenAIEngine(AIEngine):
         messages.append({"role": "user", "content": prompt})
 
         full_answer = ""
-        max_rounds = _get_cfg_int(
-            config, "MODELS", "auto_continue_max_rounds", fallback=5
-        )
-        tail_chars = _get_cfg_int(
-            config, "MODELS", "auto_continue_tail_chars", fallback=1200
-        )
+        max_rounds = runtime_settings.auto_continue_max_rounds
+        tail_chars = runtime_settings.auto_continue_tail_chars
 
         for round_idx in range(1, max_rounds + 1):
             try:
@@ -396,9 +383,8 @@ class ClaudeEngine(AIEngine):
         """
         super().__init__(name, model_name)
         self.client = client
-        self.max_tokens = _get_cfg_int(
-            config, "MODELS", "claude_max_tokens", fallback=8192
-        )
+        # max_tokens is externally configured from _build_agent_engines()
+        self.max_tokens = 8192
 
     def get_client(self) -> Anthropic:
         """
@@ -431,12 +417,8 @@ class ClaudeEngine(AIEngine):
         messages.append({"role": "user", "content": prompt})
 
         full_answer = ""
-        max_rounds = _get_cfg_int(
-            config, "MODELS", "auto_continue_max_rounds", fallback=5
-        )
-        tail_chars = _get_cfg_int(
-            config, "MODELS", "auto_continue_tail_chars", fallback=1200
-        )
+        max_rounds = runtime_settings.auto_continue_max_rounds
+        tail_chars = runtime_settings.auto_continue_tail_chars
 
         for round_idx in range(1, max_rounds + 1):
             try:
@@ -459,7 +441,7 @@ class ClaudeEngine(AIEngine):
                 if stop_reason == "max_tokens":
                     with _console_lock:
                         print(
-                            f"[*] Claude is continuing ({round_idx}/{max_rounds})...",
+                            f"[*] {self.name} is continuing ({round_idx}/{max_rounds})...",
                             end="\r",
                             flush=True,
                         )
@@ -479,86 +461,3 @@ class ClaudeEngine(AIEngine):
         self.history.append({"role": "assistant", "content": full_answer})
         self._trim_history()
         return full_answer
-
-
-def initialize_engines() -> None:
-    """
-    Initializes all AI clients and engine instances using modern SDKs.
-
-    This function clears any existing engine instances, sets up various AI
-    clients (Gemini, OpenAI-compatible, Anthropic) based on configuration
-    and API keys, populates the global ``engines`` dictionary, and ensures
-    required work directories exist.
-
-    Raises:
-        SystemExit: If there is an error during client or engine
-            initialization, the program will exit with status 1.
-    """
-    try:
-        from google import genai
-
-        gemini_api_key = get_api_key("gemini_api_key", "GEMINI_API_KEY")
-        genai_client = genai.Client(api_key=gemini_api_key)
-
-        from openai import OpenAI
-
-        client_gpt = OpenAI(api_key=get_api_key("openai_api_key", "OPENAI_API_KEY"))
-        client_grok = OpenAI(
-            api_key=get_api_key("grok_api_key", "GROK_API_KEY"),
-            base_url="https://api.x.ai/v1",
-        )
-        local_base = config.get(
-            "LOCAL", "base_url", fallback="http://localhost:11434/v1"
-        )
-        client_local = OpenAI(api_key="ollama", base_url=local_base)
-
-        from anthropic import Anthropic
-
-        client_claude = Anthropic(
-            api_key=get_api_key("anthropic_api_key", "ANTHROPIC_API_KEY")
-        )
-
-        engines.clear()
-        engines.update(
-            {
-                "gemini": GeminiEngine(
-                    "Gemini",
-                    config.get("MODELS", "gemini_model", fallback="gemini-2.5-flash"),
-                    client=genai_client,
-                ),
-                "gpt": OpenAIEngine(
-                    "GPT",
-                    config.get("MODELS", "gpt_model", fallback="gpt-4o-mini"),
-                    client_gpt,
-                    max_tokens_key="openai_max_tokens",
-                ),
-                "claude": ClaudeEngine(
-                    "Claude",
-                    config.get(
-                        "MODELS", "claude_model", fallback="claude-3-5-sonnet-20241022"
-                    ),
-                    client_claude,
-                ),
-                "grok": OpenAIEngine(
-                    "Grok",
-                    config.get("MODELS", "grok_model", fallback="grok-4-latest"),
-                    client_grok,
-                    max_tokens_key="grok_max_tokens",
-                ),
-                "local": OpenAIEngine(
-                    "Local",
-                    config.get("LOCAL", "model", fallback="qwen2.5-coder:14b"),
-                    client_local,
-                    max_tokens_key="local_max_tokens",
-                ),
-            }
-        )
-
-        for d_opt in ["work_efficient", "work_data"]:
-            d_default = "prompts" if "efficient" in d_opt else "work_data"
-            os.makedirs(config.get("Paths", d_opt, fallback=d_default), exist_ok=True)
-
-    except Exception as e:
-        print(f"[!] Startup Error: {e}")
-        logger.error(f"Engine initialization failed: {e}")
-        sys.exit(1)

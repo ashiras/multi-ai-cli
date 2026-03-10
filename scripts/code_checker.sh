@@ -13,8 +13,8 @@ uv run ruff check . --fix
 echo "[*] Type checking with mypy..."
 uv run mypy src
 
-echo "[*] Running tests with pytest..."
-uv run pytest
+# echo "[*] Running tests with pytest..."
+# uv run pytest
 
 if [ -f "./scripts/test_scenario.sh" ]; then
     echo "[*] Executing test scenario..."

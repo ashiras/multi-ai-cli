@@ -11,7 +11,7 @@ import shlex
 import sys
 
 from . import __version__
-from .config import engines, is_log_enabled, logger, setup_config, setup_logger
+from .config import agent_engines, is_log_enabled, logger, setup_config, setup_logger
 from .handlers import dispatch_command
 from .utils import print_welcome_banner
 
@@ -45,11 +45,11 @@ def main() -> None:
     setup_config(ini_path)
     setup_logger()
 
-    from .engines import initialize_engines
+    from .config import initialize_engines
 
     initialize_engines()
 
-    print_welcome_banner(engines, is_log_enabled)
+    print_welcome_banner(agent_engines, is_log_enabled)
 
     while True:
         try:
