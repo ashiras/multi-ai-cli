@@ -8,6 +8,7 @@ import re
 import shlex
 from dataclasses import dataclass, field
 
+from .adapters.shell.models import ParsedShInput  # noqa: F401 — re-export
 from .config import config
 from .utils import secure_resolve_path
 
@@ -53,24 +54,6 @@ class ParsedInput:
         """Initializes read_files to an empty list if None."""
         if self.read_files is None:
             self.read_files = []
-
-
-@dataclass
-class ParsedShInput:
-    """
-    Structured result of @sh command parsing.
-
-    Attributes:
-        command (str | None): Raw command string (direct execution).
-        run_file (str | None): Filename to execute (-r flag).
-        write_file (str | None): Output artifact filename (-w flag).
-        use_shell (bool): Whether --shell was specified.
-    """
-
-    command: str | None = None
-    run_file: str | None = None
-    write_file: str | None = None
-    use_shell: bool = False
 
 
 def _parse_write_flag(token: str) -> tuple[str | None, bool]:
