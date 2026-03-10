@@ -4,36 +4,31 @@
 
 Break free from the browser copy-paste hell. Turn your terminal into a multi-agent AI war room.
 
-**Multi-AI CLI** is a lightweight, zero-friction command-line tool designed to seamlessly orchestrate the world's leading AI engines: **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, **xAI Grok**, **Local AI models** (e.g., Ollama), and now **Figma** for design data integration.
+**Multi-AI CLI** is a lightweight, zero-friction command-line tool designed to seamlessly orchestrate the world's leading AI engines: **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, **xAI Grok**, **Local AI models** (e.g., Ollama), and adapters for **Figma** and **GitHub**.
 
-Built on the philosophy of **"Command & Monitor"**, it allows you to iterate, design, and code at the speed of thought. With the introduction of **powerful multi-step workflow orchestration** in v0.9.0, you can now automate complex interactions across AIs. Furthermore, v0.9.1 brought a fundamental shift in I/O behavior towards "UNIX-like predictability," refining how AI responses are saved. By using local files as a "shared blackboard," agents can collaborate, cross-check, and implement complex architectures while you monitor the entire conversation flow in real-time through a dedicated HUD.
+Built on the philosophy of **"Command & Monitor"**, it allows you to iterate, design, and code at the speed of thought. By using local files as a "shared blackboard," agents can collaborate, cross-check, and implement complex architectures while you monitor the entire conversation flow in real-time through a dedicated HUD.
 
-Now, with **v0.12.0**, Multi-AI CLI introduces **native shell orchestration (`@sh`)** for direct interaction with your local environment, the ability to integrate **local AI models (Ollama)** for enhanced privacy and customization, **automatic response continuation** to seamlessly handle lengthy AI outputs, and a **Figma Adapter (`@figma`)** to bridge AI and design workflows. This is a sophisticated AI collaboration environment for developers, designed as a lightweight, hacker-friendly alternative to heavyweight Multi-Agent frameworks.
+Now, with **v0.13.0**, Multi-AI CLI introduces two massive upgrades:
+1. **Agent/Engine Separation Architecture**: We completely revamped how AIs are invoked. You can now define physical execution backends (`[ENGINE.*]`) and map them to logical agents with specific roles (`[AGENT.*]`). This means you can instantly switch between `@gpt`, `@gpt.code`, or `@claude.review`, each with distinct configurations but sharing the same API keys.
+2. **GitHub Adapter (`@github.*`)**: Native REST API integration brings your repositories, file trees, source code, and issues directly into your terminal. Seamlessly fetch GitHub data and feed it into your AI workflows without ever leaving the CLI.
 
-### 🐉 Multi-AI CLI (v0.12.0: Figma Adapter, Local AI, Shell Orchestration, Auto-Continue Edition)
+This is a sophisticated AI collaboration environment for developers, designed as a lightweight, hacker-friendly alternative to heavyweight Multi-Agent frameworks.
+
+### 🐉 Multi-AI CLI (v0.13.0: Agent/Engine Architecture & GitHub Adapter Edition)
 
 ### ✨ Features
 
--   **🎼 Multi-Engine Symphony (6+ AI Engines)**: Instantly switch between `@gemini`, `@gpt`, `@claude`, `@grok`, `@local`, and the new **`@figma`** for design data, all within the same session.
--   **🎨 Figma Adapter (@figma)**: Seamlessly integrate AI with Figma design data.
-    *   **`@figma.pull`**: Fetch design files, specific nodes, or pages from Figma's REST API. Use flags like `--file`, `--node`, `--page`, `--depth`, and `--output-format` (`raw-json` or `normalized-json`). Requires `FIGMA_ACCESS_TOKEN`.
-    *   **`@figma.push`**: Send local file content (e.g., Markdown, JSON) to Figma via a plugin bridge. Specify target file (`--file`), page (`--page`), frame (`--frame`), and input format (`--input-format`). This generates a local JSON handoff file for a Figma-side plugin to consume, enabling AI-driven content updates directly into design. Does NOT require `FIGMA_ACCESS_TOKEN`.
--   **📺 HUD Monitoring (Live Log)**: Monitor the "AI conversation" in a separate terminal window using `tail -f`. Keep your workspace clean and professional.
--   **📂 Smart File I/O (v0.9.1: Raw-by-Default Write)**: Use `-r` (`--read`) and `-w` (`--write`) flags to interact with local files.
-    *   Supports **multiple `-r` inputs**, allowing you to attach several files to your prompt.
-    *   Features a **fixed prompt construction priority** (`A1 > Message > Editor > Files`) for consistent and predictable AI context delivery.
-    *   The `-w` flag **saves the FULL AI response without modification by default**. The `:code` modifier must be explicitly used to extract code blocks. Includes built-in protection against directory traversal.
--   **🔄 Automatic Response Continuation**: Never miss a word from your AI. If an AI's response hits its maximum token limit, the CLI will automatically detect it and instruct the AI to `continue exactly from where you stopped`, providing seamless, uninterrupted output for lengthy tasks.
+-   **🧠 Agent/Engine Separation (New in v0.13.0)**: Decouple physical AI providers from logical roles. Define engines like `openai_main` or `claude_fast`, and map them to namespace+role combinations like `@gpt.code`, `@claude.review`, or `@gemini.plan`.
+-   **🐙 GitHub Adapter (@github)**: Instantly pull repository metadata, directory trees, file contents, and issue tracking data from GitHub directly into your local workspace.
+-   **🎼 Multi-Engine Symphony**: Seamlessly interact with multiple namespaces (`gpt`, `claude`, `gemini`, `grok`, `local`) in the same session.
+-   **🎨 Figma Adapter (@figma)**: Bridge AI and design. Pull raw design data (`@figma.pull`) or push generated content back to Figma via a local plugin bridge (`@figma.push`).
 -   **🚀 Workflow Orchestration (@sequence)**: Define and execute sophisticated multi-step AI pipelines right from your editor using **HAN Syntax**. Supports **sequential chaining (`->`)** and **parallel execution (`[ ... || ... ]`)** of AI commands, complete with artifact relay and human gates.
--   **⚙️ Shell Orchestration (@sh)**: Integrate directly with your local shell to execute commands and scripts.
-    *   Run arbitrary shell commands with `@sh "command"`.
-    *   Execute local scripts (Python, Bash, Ruby, Node, etc.) directly from your `data` directory using `@sh -r script.py`.
-    *   Capture command output as structured JSON or human-readable text using `-w output.json` or `-w output.md`.
-    *   Use `--shell` for complex commands involving pipes, environment variable expansion, or shell-specific features.
--   **🎭 Persona Injection (@efficient)**: Inject system prompts (e.g., "Senior Architect", "Security Auditor") from local text files, effectively defining the AI's role and behavior.
+-   **⚙️ Shell Orchestration (@sh)**: Integrate directly with your local shell to execute commands and scripts. Capture output as JSON or markdown artifacts.
+-   **📂 Smart File I/O**: Use `-r` (`--read`) to attach files as context, and `-w` (`--write`) to save the raw AI response or extract pure code blocks (`-w:code`). Features a fixed prompt construction priority (`A1 > Message > Editor > Files`).
+-   **🔄 Automatic Response Continuation**: Never miss a word from your AI. Auto-detects token limits and seamlessly instructs the AI to continue exactly where it stopped.
+-   **📺 HUD Monitoring (Live Log)**: Monitor the "AI conversation" in a separate terminal window using `tail -f logs/chat.log`.
+-   **🎭 Persona Injection (@efficient)**: Inject system prompts (e.g., "Senior Architect") from local files to define agent behavior.
 -   **🧹 Memory Control (@scrub)**: Exercise precise control over conversation history. Flush specific AI memories or all at once.
--   **🔒 Security First**: Built-in protection against directory traversal and secure API key management via environment variables.
--   **🕶️ Stealth Mode**: Use the `--no-log` flag to suppress file output for sensitive sessions.
 
 ### 🍎 Installation (macOS / Linux)
 1.  Download the binary from the [Latest Release](https://github.com/ashiras/multi-ai-cli/releases/).
@@ -50,8 +45,6 @@ Now, with **v0.12.0**, Multi-AI CLI introduces **native shell orchestration (`@s
     multi-ai --version
     ```
 
-Note: On macOS, if prompted with a security warning, go to System Settings > Privacy & Security and click "Allow Anyway".
-
 ### 🛠 For Developers (Source Installation)
 If you prefer to run from source or want to contribute to the project, use [uv](https://github.com/astral-sh/uv) for a seamless setup:
 
@@ -64,83 +57,102 @@ If you prefer to run from source or want to contribute to the project, use [uv](
    ```Bash
    uv sync
    ```
-
 3. Run the CLI directly:
    ```Bash
    uv run multi-ai --version
    ```
 
-Note: Using `uv` ensures that all linter (Ruff) and type-check (mypy) settings are applied exactly as configured in `pyproject.toml`.
-
 ### 🛠 Setup
 
 #### 1. API Keys & Environment Variables
 
-You can set your API keys as environment variables (recommended) or in the `.ini` file. Environment variables take priority.
+You can set your API keys as environment variables (recommended) or inside the `.ini` file. Environment variables always take priority.
 
-```ini
-export GEMINI_API_KEY="..."
+```bash
 export OPENAI_API_KEY="..."
 export ANTHROPIC_API_KEY="..."
+export GEMINI_API_KEY="..."
 export GROK_API_KEY="..."
-export LOCAL_API_KEY="ollama" # Usually 'ollama' for default Ollama setups, can be empty
-export FIGMA_ACCESS_TOKEN="..." # Required for @figma.pull
+export FIGMA_ACCESS_TOKEN="..."
+export GITHUB_TOKEN="..." # Required for @github commands
 ```
 
-#### 2. Configuration File (`multi_ai_cli.ini`)
+#### 2. Configuration File (`multi_ai_cli.ini`) - *New Agent/Engine Syntax*
 
-Place this file in your working directory to define models, paths, and advanced settings.
+Place `multi_ai_cli.ini` in your working directory. v0.13.0 introduces a modern architecture that separates physical `[ENGINE]` definitions from logical `[AGENT]` endpoints. 
+
+*(Note: The legacy `[MODELS]` format is still supported for backward compatibility, but upgrading is highly recommended).*
 
 ```ini
 [API_KEYS]
 # Leave empty if using environment variables
-gemini_api_key = ...
 openai_api_key = ...
 anthropic_api_key = ...
-grok_api_key = ...
-local_api_key = ollama # Usually 'ollama' or empty for local models
-figma_access_token = ... # Required for @figma.pull
 
 [MODELS]
-gemini_model = gemini-2.5-flash
-gpt_model = gpt-4o-mini
-claude_model = claude-3-5-sonnet-20241022
-grok_model = grok-4-latest
-local_model = qwen2.5-coder:14b # Example for Ollama model
+# Define reusable model aliases
+gpt4o = gpt-4o
+gpt_mini = gpt-4o-mini
+claude_sonnet = claude-3-5-sonnet-20241022
+
+[RUNTIME]
 max_history_turns = 30
-
-# Optional: Set max output tokens for each model to control response length
-# If the AI hits this limit, auto-continuation will trigger.
-gemini_max_output_tokens = 8192
-openai_max_tokens = 4096
-claude_max_tokens = 8192
-grok_max_tokens = 4096
-local_max_tokens = 4096
-
-# Automatic Response Continuation Settings
-# How many times the CLI should automatically ask the AI to continue
 auto_continue_max_rounds = 5
-# How many characters from the end of the previous output to send as context
-# to help the AI continue accurately.
 auto_continue_tail_chars = 1200
 
-[LOCAL]
-# Base URL for local AI models, e.g., Ollama or other OpenAI-compatible servers
+# ==========================================
+# PHYSICAL ENGINES
+# ==========================================
+[ENGINE.openai_main]
+type = openai
+api_key_ref = openai_api_key
+model_ref = gpt4o
+max_output_tokens = 4096
+
+[ENGINE.claude_main]
+type = anthropic
+api_key_ref = anthropic_api_key
+model_ref = claude_sonnet
+max_output_tokens = 8192
+
+[ENGINE.local_coder]
+type = local_openai
 base_url = http://localhost:11434/v1
-# Default model name for the @local engine
 model = qwen2.5-coder:14b
+api_key = ollama
+
+# ==========================================
+# LOGICAL AGENTS (@namespace.role)
+# Valid namespaces: gpt, claude, gemini, grok, local
+# Valid roles: code, review, plan, doc, chat, test, image
+# ==========================================
+[AGENT.gpt]
+engine = openai_main
+
+[AGENT.gpt.code]
+engine = openai_main
+
+[AGENT.claude.review]
+engine = claude_main
+
+[AGENT.local.chat]
+engine = local_coder
+
+# ==========================================
+# ADAPTERS
+# ==========================================
+[GITHUB]
+# Optional: if GITHUB_TOKEN is set via env var, leave this blank
+token = 
+api_base_url = https://api.github.com
 
 [FIGMA]
-# Directory where @figma.push will generate handoff JSON files for Figma plugins
 handoff_dir = work_data/figma_handoff
 
 [logging]
 enabled = true
 log_dir = logs
-base_filename = chat.log
-log_level = INFO # DEBUG, INFO, WARNING, ERROR, CRITICAL
-max_bytes = 10485760 # 10MB
-backup_count = 5
+log_level = INFO
 
 [Paths]
 work_efficient = prompts
@@ -156,233 +168,135 @@ tail -f logs/chat.log
 
 ### 💻 Command Reference
 
-#### Interaction & I/O (v0.9.1 Update)
+#### AI Interaction & I/O
 
-The basic command structure for interacting with an AI is as follows:
+The basic command structure to interact with your defined agents is:
 
-`@<ai_name> <A1_context_words> [-m "message"] [-r file1 -r file2 ...] [-w[:mode] output.txt] [-e]`
+`@<namespace>[.<role>] <A1_context> [-m "message"] [-r file1...] [-w[:mode] output.txt] [-e]`
 
--   `@<ai_name>`: Specifies the AI engine you want to interact with (`@gemini`, `@gpt`, `@claude`, `@grok`, `@local`, `@figma`).
--   `<A1_context_words>`: Any space-separated text immediately following the AI's name, up to the first flag (`-`). This serves as the "title" or primary context for your prompt.
--   `-m "<message>"`, `--message "<message>"`: Specifies a concrete message body to send to the AI. Use quotes for multi-word messages.
--   `-r <file>`, `--read <file>`: Attaches the content of a file from your configured `data` directory to the prompt. **Multiple `-r` flags are supported**, each adding a file's content to the prompt.
--   `-w[:mode] <file>`, `--write[:mode] <file>`: Saves the AI's response to the `data` directory. Only the *last* `-w` flag will take effect if specified multiple times. **As of v0.9.1, the behavior of the `-w` flag has been changed.**
-
-    *   **`-w <file>` or `-w:raw <file>` (Raw by Default)**:
-        *   This is the new default behavior. It **saves the ENTIRE AI response exactly as received, without any modification or extraction.**
-        *   Ideal for updating `README.md` files, generating documentation, or when you want to preserve all the AI's output, including explanations and context alongside any code.
-        *   The `:raw` modifier is an explicit alias to clarify this unmodified saving behavior.
-    *   **`-w:code <file>` (Code Block Extraction)**:
-        *   This mode **extracts only the content of fenced code blocks** (e.g., ```python ... ```) from the AI's response and saves it to the specified file.
-        *   Extremely useful when you only need the pure code from an AI's output, stripping away any explanatory prose.
-        *   If multiple code blocks are present, they will be concatenated.
-        *   If the response contains no fenced code blocks, it will fall back to saving the original text entirely.
--   `-e`, `--edit`: Opens your default `$EDITOR` (or `vi`) to compose a multi-line prompt.
-
-#### Prompt Construction Priority
-
-When combining different input methods, the final prompt sent to the AI is constructed in a fixed order, regardless of their position on the command line:
-
-1.  **A1 (Context/Title)**: Everything from the command start to the first switch (`-`). This sets the primary intent or theme of your prompt.
-2.  **Message (`-m`)**: Content following the `-m` / `--message` flag. Useful for specific instructions or questions.
-3.  **Editor (`-e`)**: Content captured via the `-e` / `--edit` flag. Ideal for longer, more complex instructions or requirements.
-4.  **Files (`-r`)**: Content of all specified files. Each file's content is clearly delimited (e.g., `--- [File: filename] ---`), helping the AI understand which part originated from which file.
-
-#### Example AI Interactions:
-
-```bash
-# For updating entire documents (-w:raw behaves the same as -w)
-% @claude "Update the installation steps in README.md, reflecting the v0.12.0 changes, including @figma." -r README.md -w:raw README_updated.md
-
-# For generating a Python script and extracting only the code
-% @gpt "Write a fast fibonacci function in Python using recursion with memoization." -w:code fibonacci.py
-
-# Combining multiple files, messages, and A1 context to send to GPT
-% @gpt "Refactor this function for better readability" -m "Consider performance implications too." -r utils.py -r tests/test_utils.py -w utils_new.py
-
-# Using the local Ollama model to summarize a document
-% @local "Summarize this long technical document for a non-technical audience." -r long_doc.txt -w summary.md
-```
-
-#### Figma Adapter (`@figma`) - NEW in v0.12.0
-
-The `@figma` adapter allows Multi-AI CLI to interact with Figma design files, pulling data from the Figma API and pushing content via a local plugin bridge for design system integration.
-
-**`@figma.pull`**: Fetch design data from Figma. Requires `FIGMA_ACCESS_TOKEN`.
-
-`@figma.pull --file <file_key> [--node <id>] [--page <name>] [--depth <int>] [--output-format <format>] [-w <output_file>]`
-
--   `--file <file_key>`: **(Required)** The 22-character key of the Figma file.
--   `--node <id>`: Fetch a specific node (e.g., a component, frame, or text layer) by its ID. Mutually exclusive with `--page`.
--   `--page <name>`: Filter the file's content to a specific page by its name. Mutually exclusive with `--node`.
--   `--depth <int>`: (Optional) The depth of the node tree traversal (default: entire document or node).
--   `--output-format <format>`: (Optional) `raw-json` (the exact API response) or `normalized-json` (default, a simplified, AI-friendly structure).
--   `-w <output_file>`: Save the fetched JSON data to a local file in your `data` directory.
+-   `@<namespace>[.<role>]`: The agent you defined in your INI file (e.g., `@gpt`, `@claude.review`, `@gpt.code`).
+-   `<A1_context_words>`: Space-separated text immediately following the agent name. Acts as the primary context/title.
+-   `-m "<message>"`, `--message`: Specific instruction to send to the AI.
+-   `-r <file>`, `--read`: Attaches a local file from the `data` directory to the prompt.
+-   `-w[:mode] <file>`, `--write`: Saves the AI's response.
+    *   **`-w <file>` or `-w:raw <file>`**: Saves the ENTIRE AI response exactly as received (default).
+    *   **`-w:code <file>`**: Extracts only the fenced code blocks (e.g., ```python ... ```) and saves them.
+-   `-e`, `--edit`: Opens your default `$EDITOR` to compose a multi-line prompt.
 
 **Examples:**
 ```bash
-# Pull an entire Figma file and save as normalized JSON
-% @figma.pull --file "YOUR_FILE_KEY" -w design_file.json
+# General query using the default GPT agent
+% @gpt "Explain how asyncio works in Python." -w asyncio_guide.md
 
-# Pull a specific node by ID from a file and save it
-% @figma.pull --file "YOUR_FILE_KEY" --node "NODE_ID" -w my_component_node.json
+# Code generation using a specific role agent, extracting only code
+% @gpt.code "Write a fast fibonacci function using memoization." -w:code fibo.py
 
-# Pull the contents of a specific page from a Figma file
-% @figma.pull --file "YOUR_FILE_KEY" --page "Design System" -w design_system_page.json
-
-# Pull raw JSON for debugging or advanced use cases
-% @figma.pull --file "YOUR_FILE_KEY" --output-format raw-json -w raw_design_data.json
+# Reviewing code with Claude
+% @claude.review "Check this script for security vulnerabilities." -r server.py -w security_report.md
 ```
 
-**`@figma.push`**: Send local content to Figma for integration via a plugin bridge. Does NOT require `FIGMA_ACCESS_TOKEN`.
+#### GitHub Adapter (`@github.*`) - NEW in v0.13.0
 
-`@figma.push -r <input_file> [--file <key>] [--page <name>] [--frame <name>] [--input-format <format>] [-w <summary_file>]`
+Integrate GitHub repositories directly into your terminal flow. All commands support the `-w` flag to save outputs locally, making them perfect inputs (`-r`) for your AI agents.
 
--   `-r <input_file>`: **(Required)** Path to a local file (e.g., Markdown, JSON) in your `data` directory whose content you want to send.
--   `--file <key>`: (Optional metadata) The Figma file key the content is intended for.
--   `--page <name>`: (Optional metadata) The target page name within the Figma file.
--   `--frame <name>`: (Optional metadata) The target frame name within the page.
--   `--input-format <format>`: (Optional) Specify the format of the input file (e.g., `markdown`, `json`). Auto-detected from `.md` or `.json` extensions if omitted.
--   `-w <summary_file>`: Save a JSON summary of the push operation (including the path to the generated handoff file) to your `data` directory.
+Requires the `GITHUB_TOKEN` environment variable or INI configuration.
 
-**Examples:**
+**1. `@github.repo`**: Fetch repository metadata (stars, forks, description, default branch).
 ```bash
-# Push a Markdown spec to Figma for a plugin to convert into text layers
-% @figma.push -r component_spec.md --file "YOUR_FILE_KEY" --page "Designs" --frame "Button Component"
-
-# Push JSON data generated by an AI (e.g., a style dictionary)
-% @figma.push -r generated_styles.json --file "YOUR_FILE_KEY" --input-format json -w figma_styles_handoff_summary.json
-
-# Use in a sequence: AI generates content, then pushes to Figma
-# @gpt "Generate a description for a new UI component in markdown format." -w component_desc.md
-# -> @figma.push -r component_desc.md --file "YOUR_FILE_KEY" --page "New Components"
+% @github.repo --repo "ashiras/multi-ai-cli" -w repo_info.md
 ```
 
-#### Shell Orchestration (`@sh`) - NEW in v0.11.0
-
-The `@sh` command allows you to execute shell commands and scripts directly from the CLI, seamlessly integrating local tools and workflows with your AI interactions. This is invaluable for automating tasks, generating data for AI processing, or implementing AI-generated code.
-
-**Basic Usage:**
-`@sh "<command_string>"`
-`@sh -r <script_file>`
-`@sh "<command_string>" -w <output_file>`
-`@sh --shell "<complex_command_with_pipes>"`
-
-**Key Features & Flags:**
-
--   **Direct Command Execution**:
-    *   `@sh "ls -la"`: Executes `ls -la`. Arguments are safely parsed via `shlex.split` by default, preventing shell injection unless `--shell` is used.
-    *   If `--shell` is specified (`@sh --shell "echo $HOME | grep user"`), the command string is passed directly to the system shell (e.g., `bash -c "..."`), enabling pipes, environment variable expansion, and other shell-specific features. Use with caution.
--   **Run Local Script (`-r <file>`, `--read <file>`)**:
-    *   `@sh -r my_script.py`: Executes a script located in your configured `data` directory.
-    *   The CLI automatically detects the correct runner based on the file extension.
-    *   **Supported Runners**:
-        *   `.py`: `python3`
-        *   `.sh`: `bash`
-        *   `.rb`: `ruby`
-        *   `.js`: `node`
-        *   `.ts`: `npx ts-node`
-        *   `.pl`: `perl`
-        *   `.lua`: `lua`
-        *   `.R`, `.r`: `Rscript`
--   **Capture Output Artifact (`-w <file>`, `--write <file>`)**:
-    *   `@sh "git status" -w git_status.md`: Captures the `stdout` and `stderr`, exit code, and duration of the command.
-    *   **Intelligent Output Formatting**:
-        *   If the output file ends with `.json` (e.g., `result.json`), the artifact will be saved as structured JSON.
-        *   Otherwise (e.g., `.txt`, `.md`), it will be saved as a human-readable Markdown-like text artifact, clearly showing command, status, output, and errors.
--   **Security**: By default, commands are executed safely via `shlex.split` without involving a shell. The `--shell` flag explicitly enables shell execution, which is powerful but requires careful use to prevent command injection. All file paths for `-r` and `-w` are securely resolved within designated `data` directories.
-
-**Examples:**
-
+**2. `@github.tree`**: Fetch directory listings or the full file tree.
 ```bash
-# Execute a simple command and print output to console
-% @sh "pwd"
+# Fetch root directory
+% @github.tree --repo "ashiras/multi-ai-cli"
 
-# Run a Python script and capture its output to a Markdown file
-% @sh -r analyze_logs.py -w log_analysis.md
-
-# Run a Python script that takes an argument, and capture output as JSON
-% @sh "python3 my_tool.py --config prod" -w tool_output.json
-
-# Execute a complex shell command with pipes and environment variable expansion
-# WARNING: Use --shell with caution, as it enables shell interpretation.
-% @sh --shell "grep -r 'TODO' . | wc -l" -w todo_count.txt
-
-# Integrate @sh into a sequence (see @sequence section below)
-# This allows AI to generate code, then @sh to run it, and AI to review results.
+# Fetch a specific directory
+% @github.tree --repo "ashiras/multi-ai-cli" --path "multi_ai_cli/adapters" -w adapters_tree.md
 ```
 
-#### Automatic Response Continuation - NEW in v0.12.0
+**3. `@github.file`**: Download and decode the contents of a specific file.
+```bash
+% @github.file --repo "ashiras/multi-ai-cli" --path "README.md" -w remote_readme.md
+```
 
-This feature enhances your workflow by automatically managing cases where an AI's response is truncated due to `max_tokens` limits. Instead of receiving an incomplete answer, the CLI will:
+**4. `@github.issue`**: Fetch the complete details of a specific issue (including body and labels).
+```bash
+% @github.issue --repo "ashiras/multi-ai-cli" --number 42 -w issue_42.md
+```
 
-1.  Detect that the AI's response was cut short (e.g., due to `length` stop reason or `MAX_TOKENS`).
-2.  Send a follow-up prompt to the AI, instructing it to `continue EXACTLY from where you stopped`. This prompt includes a "tail" of the last part of the AI's output to help the AI maintain context and seamless flow.
-3.  Concatenate the new segment with the previous output.
-4.  Repeat this process for a configurable number of `auto_continue_max_rounds` until the AI indicates it has finished or the round limit is reached.
+**5. `@github.issues`**: Fetch a list of issues (summarized).
+```bash
+# List open issues (default limit is 30)
+% @github.issues --repo "ashiras/multi-ai-cli" --state open --limit 50 -w open_issues.md
 
-This means you can request very long code blocks, detailed explanations, or extensive documentation without manually prompting "continue" multiple times.
+# Filter by label or assignee
+% @github.issues --repo "ashiras/multi-ai-cli" --label "bug" --assignee "ashiras"
+```
 
-**Configuration**:
-Adjust `auto_continue_max_rounds` and `auto_continue_tail_chars` in your `multi_ai_cli.ini` file to fine-tune this behavior.
+**Workflow Example (GitHub + AI):**
+```bash
+# 1. Fetch a specific file from GitHub
+% @github.file --repo "owner/repo" --path "src/main.py" -w main.py
+
+# 2. Have your AI review the fetched code
+% @claude.review "Refactor this code to follow SOLID principles." -r main.py -w:code main_refactored.py
+```
+
+#### Shell Orchestration (`@sh`)
+
+Execute shell commands and scripts directly from the CLI.
+
+`@sh "<command_string>" [-r <script>] [-w <output>] [--shell]`
+
+-   **Direct Command**: `@sh "ls -la"`
+-   **Run Local Script**: `@sh -r analyze_logs.py -w report.md` (Auto-detects runner: `python3`, `bash`, `node`, etc.)
+-   **Capture Artifacts**: Use `-w <file.json>` to capture exit code, stdout, and stderr as structured JSON, or `.md` for a human-readable text artifact.
+-   **Shell Mode**: Use `--shell` for complex commands involving pipes (`|`) or env variables. *(Warning: Allows shell injection, use with caution).*
+
+#### Figma Adapter (`@figma.*`)
+
+-   **`@figma.pull`**: Fetch design data.
+    `@figma.pull --file <key> [--node <id> | --page <name>] -w design.json`
+-   **`@figma.push`**: Send local content to a Figma plugin bridge.
+    `@figma.push -r spec.md --file <key> --page "Designs" --frame "Button"`
 
 #### Context Management
 
--   `@efficient [target/all] <filename>`: Loads a persona (system prompt) from `prompts/` and resets the memory for the target AI.
-    -   `% @efficient gpt architect.txt`
-    -   `% @efficient all security_expert.txt`
+-   `@efficient [target/all] <filename>`: Loads a persona (system prompt) from the `prompts/` dir and resets the memory for the target agent.
 -   `@scrub [target/all]`: Clears conversation history while keeping the current persona intact.
-    -   `% @scrub all`
-    -   `% @scrub claude`
--   `exit` or `quit`: Shuts down all AI engines and exits the CLI.
+-   `exit` / `quit`: Shuts down all engines and exits the CLI.
 
 ### 🚀 Workflow Orchestration with @sequence (HAN Syntax)
 
-Move beyond single commands tobuild sophisticated, multi-agent pipelines. The `@sequence -e` command lets you define a series of AI interactions and shell commands in your preferred editor, leveraging **HAN (Human-Agent-Network) Syntax** for powerful automation.
+Build sophisticated, multi-agent pipelines using the `@sequence -e` command. It opens your editor, allowing you to define complex interactions using **HAN (Human-Agent-Network) Syntax**.
 
-**Key Concepts:**
+-   **`->`**: Sequential execution (downstream consumes upstream output).
+-   **`[ ... || ... ]`**: Parallel execution (run multiple agents simultaneously).
+-   **Artifact Relay**: Files written (`-w`) by one step can be read (`-r`) by the next step instantly.
 
--   **Sequential Execution (`->`)**: Chain commands where the output of one step can become the input for the next. The sequence proceeds step-by-step.
--   **Parallel Execution (`[ ... || ... ]`)**: Run multiple AI tasks or shell commands simultaneously within a single step. Their combined outputs (typically via `-w` files) can then be fed into a subsequent step for integration or synthesis.
--   **Artifact Relay**: Files generated by `-w` in one step are immediately available for reading by subsequent AIs or `@sh` commands via `-r`. This enables seamless collaboration across the pipeline.
--   **Cascade Stop**: If any step or parallel task within a sequence fails, the entire pipeline halts, preventing wasted resources or incorrect downstream processing.
--   **Human Gate (H)**: While not an explicit command in the CLI, the editor integration itself serves as the "Human Gate". You control when to run the sequence and can modify it between runs to introduce human judgment, approval, or editing.
+**Example Pipeline (Editor View):**
+```text
+# Step 1: GPT plans the architecture based on a GitHub issue
+@github.issue --repo "owner/repo" --number 12 -w issue.md
+-> @gpt.plan "Create a technical specification based on this issue." -r issue.md -w spec.md
 
-**HAN Syntax Example (Editor View):**
-
-This example demonstrates a complex workflow: Gemini designs, GPT and Grok review in parallel, Claude integrates the feedback, `@sh` executes a linting check on the generated code, and finally GPT implements the code.
-
-```Plaintext
-# Step 1: Design Phase - Gemini proposes an architecture and writes it to a file.
-@gemini "Propose a scalable architecture for a real-time chat app. Focus on microservices and cloud deployment." -w arch_design.md
-
--> # Step 2: Parallel Review - GPT and Grok review the design concurrently.
-   [
-       @gpt  "Review arch_design.md for security flaws and suggest improvements." -r arch_design.md -w gpt_security_review.md
-    || @grok "Review arch_design.md for efficiency and scalability bottlenecks. Focus on cost optimization." -r arch_design.md -w grok_efficiency_review.md
+# Step 2: Parallel Code Generation and Design Check
+-> [
+      @gpt.code "Write the Python implementation based on spec." -r spec.md -w:code app.py
+   || @claude.review "Check the spec for security flaws." -r spec.md -w security_review.md
    ]
 
--> # Step 3: Integration - Claude integrates reviews and provides a refined design.
-   @claude "Integrate the security and efficiency reviews into the original architecture. Output a final, refined architecture."
-          -r arch_design.md -r gpt_security_review.md -r grok_efficiency_review.md -w final_arch.md
+# Step 3: Local Linter Check
+-> @sh "flake8 app.py" -w lint_report.md
 
--> # Step 4: Code Implementation - GPT starts implementing a core component based on the final design.
-   @gpt "Implement the server-side logic in Python for a user authentication microservice based on final_arch.md."
-        -r final_arch.md -w auth_service.py
-
--> # Step 5: Linting Check - Use @sh to run a linter on the generated code.
-   @sh "pylint auth_service.py" -r auth_service.py -w lint_report.md
-
--> # Step 6: Code Refinement - GPT reviews the lint report and refines the code.
-   @gpt "Review lint_report.md and refactor auth_service.py to address any issues. Provide the refined Python code."
-        -r auth_service.py -r lint_report.md -w:code auth_service_refined.py
+# Step 4: Final Refinement
+-> @gpt.code "Fix linting errors and apply security review suggestions." -r app.py -r security_review.md -r lint_report.md -w:code app_final.py
 ```
-
-This powerful capability allows you to orchestrate sophisticated AI workflows, managing complex interactions, artifact handoffs, and local shell commands with simple, human-readable syntax.
 
 ### 📝 Appendix: Definition of HAN Syntax (Human-Agent-Network)
 
-HAN is a domain-specific notation designed to describe the flow of information and decision-making between human users and AI agents. It prioritizes clarity and flexibility for multi-agent workflows.
+HAN is a domain-specific notation designed to describe the flow of information and decision-making between human users and AI agents.
 
 ```Plaintext
 H        human gate (sets constraints / approves / decides)
