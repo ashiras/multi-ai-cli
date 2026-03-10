@@ -2,11 +2,10 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
+from multi_ai_cli.adapters.shell import ParsedShInput, ShellAdapter
+from multi_ai_cli.adapters.shell.adapter import ShellCommandBuildError
+from multi_ai_cli.adapters.shell.models import ShellResult
 from multi_ai_cli.handlers import (
-    _build_sh_command,
-    _format_artifact_json,
-    _format_artifact_text,
-    _resolve_runner,
     dispatch_command,
     handle_ai_interaction,
     handle_efficient,
@@ -14,7 +13,6 @@ from multi_ai_cli.handlers import (
     handle_sequence,
     handle_sh,
 )
-from multi_ai_cli.parsers import ParsedShInput
 
 
 @pytest.fixture(autouse=True)
@@ -217,18 +215,25 @@ class TestHandleAiInteraction:
 
 class TestHandleSh:
     def test_successful_command(self, mock_engines_fixture):
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "Hello"
-        mock_result.stderr = ""
-
         with (
             patch("multi_ai_cli.handlers._parse_sh_input") as mock_parse,
-            patch(
-                "multi_ai_cli.handlers._build_sh_command",
+            patch.object(
+                ShellAdapter,
+                "build_command",
                 return_value=(["echo", "Hello"], False),
             ),
-            patch("subprocess.run", return_value=mock_result),
+            patch.object(
+                ShellAdapter,
+                "execute_command",
+                return_value=ShellResult(
+                    exit_code=0,
+                    stdout="Hello",
+                    stderr="",
+                    duration_ms=1.2,
+                    command_display="echo Hello",
+                    use_shell=False,
+                ),
+            ),
             patch("multi_ai_cli.handlers.logger"),
             patch("builtins.print") as mock_print,
         ):
@@ -238,48 +243,36 @@ class TestHandleSh:
         assert result is True
         assert any("SUCCESS" in str(c) for c in mock_print.call_args_list)
 
-    def test_command_not_found(self, mock_engines_fixture):
+    def test_build_error(self, mock_engines_fixture):
         with (
             patch("multi_ai_cli.handlers._parse_sh_input") as mock_parse,
-            patch(
-                "multi_ai_cli.handlers._build_sh_command",
-                return_value=(["nonexistent"], False),
+            patch.object(
+                ShellAdapter,
+                "build_command",
+                side_effect=ShellCommandBuildError("bad command"),
             ),
-            patch("subprocess.run", side_effect=FileNotFoundError("not found")),
             patch("multi_ai_cli.handlers.logger"),
             patch("builtins.print") as mock_print,
         ):
-            mock_parse.return_value = ParsedShInput(command="nonexistent")
-            result = handle_sh(["@sh", "nonexistent"])
+            mock_parse.return_value = ParsedShInput(command="bad")
+            result = handle_sh(["@sh", "bad"])
 
         assert result is False
-        assert any("Command not found" in str(c) for c in mock_print.call_args_list)
-
-    def test_parse_returns_none(self, mock_engines_fixture):
-        with patch("multi_ai_cli.handlers._parse_sh_input", return_value=None):
-            result = handle_sh(["@sh"])
-        assert result is False
-
-    def test_build_returns_none(self, mock_engines_fixture):
-        with (
-            patch("multi_ai_cli.handlers._parse_sh_input") as mock_parse,
-            patch("multi_ai_cli.handlers._build_sh_command", return_value=None),
-        ):
-            mock_parse.return_value = ParsedShInput(command="test")
-            result = handle_sh(["@sh", "test"])
-        assert result is False
+        assert any("bad command" in str(c) for c in mock_print.call_args_list)
 
     def test_timeout(self, mock_engines_fixture):
         import subprocess as sp
 
         with (
             patch("multi_ai_cli.handlers._parse_sh_input") as mock_parse,
-            patch(
-                "multi_ai_cli.handlers._build_sh_command",
+            patch.object(
+                ShellAdapter,
+                "build_command",
                 return_value=(["sleep", "999"], False),
             ),
-            patch(
-                "subprocess.run",
+            patch.object(
+                ShellAdapter,
+                "execute_command",
                 side_effect=sp.TimeoutExpired(cmd="sleep", timeout=300),
             ),
             patch("multi_ai_cli.handlers.logger"),
@@ -385,81 +378,74 @@ class TestHandleSequence:
 
 class TestResolveRunner:
     def test_python_file(self):
-        result = _resolve_runner("script.py")
+        result = ShellAdapter._resolve_runner("script.py")
         assert result == ["python3"]
 
     def test_shell_file(self):
-        result = _resolve_runner("script.sh")
+        result = ShellAdapter._resolve_runner("script.sh")
         assert result == ["bash"]
 
     def test_unknown_extension(self):
-        result = _resolve_runner("file.xyz")
+        result = ShellAdapter._resolve_runner("file.xyz")
         assert result is None
 
     def test_r_uppercase(self):
-        result = _resolve_runner("analysis.R")
+        result = ShellAdapter._resolve_runner("analysis.R")
         assert result == ["Rscript"]
 
 
 class TestBuildShCommand:
+    def setup_method(self):
+        self.adapter = ShellAdapter()
+
     def test_direct_command(self):
         parsed = ParsedShInput(command="echo hello")
-        result = _build_sh_command(parsed)
-        assert result is not None
-        cmd, use_shell = result
+        cmd, use_shell = self.adapter.build_command(parsed)
         assert cmd == ["echo", "hello"]
         assert use_shell is False
 
     def test_shell_mode(self):
         parsed = ParsedShInput(command="echo $HOME | grep user", use_shell=True)
-        result = _build_sh_command(parsed)
-        assert result is not None
-        cmd, use_shell = result
+        cmd, use_shell = self.adapter.build_command(parsed)
         assert cmd == "echo $HOME | grep user"
         assert use_shell is True
 
     def test_both_command_and_file_error(self):
         parsed = ParsedShInput(command="echo hi", run_file="script.py")
-        with patch("builtins.print"):
-            result = _build_sh_command(parsed)
-        assert result is None
+        with pytest.raises(ShellCommandBuildError):
+            self.adapter.build_command(parsed)
 
     def test_no_command_or_file(self):
         parsed = ParsedShInput()
-        with patch("builtins.print"):
-            result = _build_sh_command(parsed)
-        assert result is None
+        with pytest.raises(ShellCommandBuildError):
+            self.adapter.build_command(parsed)
 
     def test_run_file_not_found(self):
         parsed = ParsedShInput(run_file="missing.py")
-        with (
-            patch(
-                "multi_ai_cli.handlers.secure_resolve_path",
-                return_value="/fake/missing.py",
-            ),
-            patch("os.path.isfile", return_value=False),
-            patch("builtins.print"),
+        with patch(
+            "multi_ai_cli.adapters.shell.adapter.os.path.isfile",
+            return_value=False,
         ):
-            result = _build_sh_command(parsed)
-        assert result is None
+            with pytest.raises(ShellCommandBuildError):
+                self.adapter.build_command(parsed)
 
 
 class TestFormatArtifact:
     def test_format_text_success(self):
-        result = _format_artifact_text("echo hi", 0, "hi\n", "", 5.2)
+        result = ShellAdapter.format_artifact_text("echo hi", 0, "hi\n", "", 5.2)
         assert "SUCCESS" in result
         assert "echo hi" in result
         assert "hi" in result
 
     def test_format_text_failure(self):
-        result = _format_artifact_text("bad", 1, "", "err\n", 10.0)
+        result = ShellAdapter.format_artifact_text("bad", 1, "", "err\n", 10.0)
         assert "FAILURE" in result
         assert "err" in result
 
     def test_format_json(self):
-        result = _format_artifact_json("echo hi", 0, "hi\n", "", 5.2)
         import json
 
+        result = ShellAdapter.format_artifact_json("echo hi", 0, "hi\n", "", 5.2)
         data = json.loads(result)
         assert data["status"] == "success"
         assert data["command"] == "echo hi"

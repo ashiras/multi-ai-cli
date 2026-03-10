@@ -5,14 +5,14 @@ Processes user commands (@model, @sh, @sequence, @scrub, etc.) and
 dispatches them.
 """
 
-import json
 import os
 import shlex
 import subprocess
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 
+from .adapters.shell import ShellAdapter
+from .adapters.shell.adapter import ShellCommandBuildError
+from .adapters.shell.models import ShellResult
 from .config import config, engines, logger
 from .parsers import (
     ParsedInput,
@@ -30,18 +30,6 @@ from .utils import (
     safe_print,
     secure_resolve_path,
 )
-
-RUNNER_MAP = {
-    ".py": ["python3"],
-    ".sh": ["bash"],
-    ".rb": ["ruby"],
-    ".js": ["node"],
-    ".ts": ["npx", "ts-node"],
-    ".pl": ["perl"],
-    ".lua": ["lua"],
-    ".r": ["Rscript"],
-    ".R": ["Rscript"],
-}
 
 WRITE_MODE_RAW = "raw"
 WRITE_MODE_CODE = "code"
@@ -239,6 +227,9 @@ def handle_sh(parts: list[str]) -> bool:
     """
     Handles @sh command: local shell execution with artifact capture.
 
+    Delegates command building and execution to ShellAdapter.
+    This handler is responsible for all UI output (print) and logging.
+
     Args:
         parts (list[str]): List of command parts.
 
@@ -256,28 +247,34 @@ def handle_sh(parts: list[str]) -> bool:
     if parsed is None:
         return False
 
-    build_result = _build_sh_command(parsed)
-    if build_result is None:
+    adapter = ShellAdapter()
+
+    # --- Build command (before execution, so we can display it) ---
+    def _resolve_path(filename: str) -> str:
+        return secure_resolve_path(filename, "data", config=config)
+
+    try:
+        cmd, use_shell = adapter.build_command(parsed, resolve_path_fn=_resolve_path)
+    except PermissionError as e:
+        print(f"[!] @sh: {e}")
+        logger.error(f"@sh: Permission error: {e}")
+        return False
+    except ShellCommandBuildError as e:
+        print(f"[!] @sh: {e}")
+        logger.error(f"@sh: Build error: {e}")
         return False
 
-    cmd, use_shell = build_result
     cmd_display = shlex.join(cmd) if isinstance(cmd, list) else cmd
 
+    # --- Pre-execution display (must happen BEFORE subprocess runs) ---
     logger.info(f"@sh: Executing '{cmd_display}' (shell={use_shell})")
     print(f"[*] @sh: Executing: {cmd_display}")
     if use_shell:
         print("[*] @sh: --shell mode enabled (shell=True)")
 
-    start_time = time.monotonic()
+    # --- Execute command via adapter ---
     try:
-        result = subprocess.run(
-            cmd,
-            shell=use_shell,
-            env=os.environ.copy(),
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        shell_result: ShellResult = adapter.execute_command(cmd, use_shell)
     except FileNotFoundError as e:
         print(f"[!] @sh: Command not found: {e}")
         logger.error(f"@sh: Command not found: {e}")
@@ -286,17 +283,16 @@ def handle_sh(parts: list[str]) -> bool:
         print("[!] @sh: Command timed out (300s limit).")
         logger.error(f"@sh: Timeout for '{cmd_display}'")
         return False
-    except Exception as e:
+    except OSError as e:
         print(f"[!] @sh: Execution error: {e}")
         logger.error(f"@sh: Execution error: {e}")
         return False
 
-    end_time = time.monotonic()
-    duration_ms = (end_time - start_time) * 1000
-
-    exit_code = result.returncode
-    stdout = result.stdout or ""
-    stderr = result.stderr or ""
+    # --- Post-execution display ---
+    exit_code = shell_result.exit_code
+    stdout = shell_result.stdout
+    stderr = shell_result.stderr
+    duration_ms = shell_result.duration_ms
 
     status_icon = "✓" if exit_code == 0 else "✗"
     status_label = "SUCCESS" if exit_code == 0 else "FAILURE"
@@ -336,17 +332,18 @@ def handle_sh(parts: list[str]) -> bool:
             print(display_stderr)
             print("--- end stderr ---")
 
+    # --- Artifact output ---
     if parsed.write_file:
         try:
             out_path = secure_resolve_path(parsed.write_file, "data", config=config)
 
             if parsed.write_file.lower().endswith(".json"):
-                artifact = _format_artifact_json(
+                artifact = adapter.format_artifact_json(
                     cmd_display, exit_code, stdout, stderr, duration_ms
                 )
                 fmt_label = "JSON"
             else:
-                artifact = _format_artifact_text(
+                artifact = adapter.format_artifact_text(
                     cmd_display, exit_code, stdout, stderr, duration_ms
                 )
                 fmt_label = "text"
@@ -469,157 +466,3 @@ def handle_sequence(parts: list[str]) -> None:
     print("=" * 50)
     print(f"[✓] Sequence Execution complete. All {total_steps} steps succeeded.")
     logger.info("[*] @sequence: Pipeline completed successfully.")
-
-
-def _resolve_runner(filename: str) -> list[str] | None:
-    """
-    Resolves the appropriate runner for the given filename's extension.
-
-    Args:
-        filename (str): The name of the file for which to resolve the runner.
-
-    Returns:
-        list[str] | None: List of runner command or None if not found.
-    """
-    ext = Path(filename).suffix.lower()
-    if Path(filename).suffix == ".R":
-        ext = ".R"
-    return RUNNER_MAP.get(ext)
-
-
-def _build_sh_command(parsed: ParsedShInput) -> tuple[list[str] | str, bool] | None:
-    """
-    Builds the final command list or string from ``ParsedShInput``.
-
-    Resolves runner for ``-r`` files or uses ``shlex`` for direct commands.
-
-    Args:
-        parsed (ParsedShInput): Parsed shell input.
-
-    Returns:
-        tuple[list[str] | str, bool] | None: A tuple containing the command
-            (as a list of strings or a single string) and a boolean
-            indicating whether to use a shell, or None if command
-            building failed.
-    """
-    if parsed.run_file and parsed.command:
-        print("[!] @sh: Cannot use both -r <file> and direct command.")
-        return None
-
-    if not parsed.run_file and not parsed.command:
-        print("[!] @sh: No command or file specified.")
-        return None
-
-    if parsed.run_file:
-        try:
-            filepath = secure_resolve_path(parsed.run_file, "data", config=config)
-        except PermissionError as e:
-            print(f"[!] @sh: {e}")
-            return None
-
-        if not os.path.isfile(filepath):
-            print(f"[!] @sh: File not found: '{parsed.run_file}'")
-            return None
-
-        runner = _resolve_runner(parsed.run_file)
-        if runner is None:
-            ext = Path(parsed.run_file).suffix
-            print(f"[!] @sh: No runner for extension '{ext}'.")
-            return None
-
-        if isinstance(runner, str):
-            runner = [runner]
-
-        cmd = runner + [filepath]
-
-        return cmd, parsed.use_shell
-
-    if parsed.use_shell:
-        if parsed.command is None:
-            return None
-        return parsed.command, True
-
-    if parsed.command is None:
-        print("[!] @sh: No command provided.")
-        return None
-
-    try:
-        cmd = shlex.split(parsed.command)
-    except ValueError as e:
-        print(f"[!] @sh: Command parse error: {e}")
-        return None
-
-    if not cmd:
-        print("[!] @sh: Empty command.")
-        return None
-
-    return cmd, False
-
-
-def _format_artifact_text(
-    cmd_display: str, exit_code: int, stdout: str, stderr: str, duration_ms: float
-) -> str:
-    """
-    Formats shell command execution artifact as plain text.
-
-    Args:
-        cmd_display (str): Command that was executed.
-        exit_code (int): Exit code of the command.
-        stdout (str): Standard output from the command.
-        stderr (str): Standard error from the command.
-        duration_ms (float): Duration of the command execution in
-            milliseconds.
-
-    Returns:
-        str: Formatted artifact as text.
-    """
-    status = "SUCCESS" if exit_code == 0 else "FAILURE"
-    lines = [
-        "# Shell Execution Artifact",
-        f"- **Command:** `{cmd_display}`",
-        f"- **Status:** {status}",
-        f"- **Exit Code:** {exit_code}",
-        f"- **Duration:** {duration_ms:.1f}ms",
-        "",
-    ]
-
-    if stdout.strip():
-        lines.extend(["## stdout", "```", stdout.rstrip(), "```", ""])
-    else:
-        lines.append("## stdout\n_(empty)_\n")
-
-    if stderr.strip():
-        lines.extend(["## stderr", "```", stderr.rstrip(), "```", ""])
-    else:
-        lines.append("## stderr\n_(empty)_\n")
-
-    return "\n".join(lines)
-
-
-def _format_artifact_json(
-    cmd_display: str, exit_code: int, stdout: str, stderr: str, duration_ms: float
-) -> str:
-    """
-    Formats shell command execution artifact as JSON.
-
-    Args:
-        cmd_display (str): Command that was executed.
-        exit_code (int): Exit code of the command.
-        stdout (str): Standard output from the command.
-        stderr (str): Standard error from the command.
-        duration_ms (float): Duration of the command execution in
-            milliseconds.
-
-    Returns:
-        str: Formatted artifact as JSON.
-    """
-    artifact = {
-        "command": cmd_display,
-        "status": "success" if exit_code == 0 else "failure",
-        "exit_code": exit_code,
-        "duration_ms": round(duration_ms, 1),
-        "stdout": stdout,
-        "stderr": stderr,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-    }
-    return json.dumps(artifact, indent=2, ensure_ascii=False)
