@@ -4,7 +4,14 @@
 
 Break free from the browser copy-paste hell. Turn your terminal into a multi-agent AI war room.
 
-**Multi-AI CLI** is a lightweight, zero-friction command-line tool designed to seamlessly orchestrate the world's leading AI engines: **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, **xAI Grok**, **Local AI models** (e.g., Ollama), and adapters for **Figma** and **GitHub**.
+**Multi-AI CLI** is a lightweight command-line hub for orchestrating multiple AI agents and external adapters from one terminal session.
+
+It supports:
+- multiple AI namespaces (`gpt`, `claude`, `gemini`, `grok`, `local`)
+- adapter-style integrations such as **Figma** and **GitHub**
+- artifact-based workflows using local files as a shared blackboard
+
+With the new **Agent/Engine separation**, you can bind logical agents such as `@gpt.code` or `@claude.review` to reusable engine definitions and compose them in sequential or parallel workflows.
 
 Built on the philosophy of **"Command & Monitor"**, it allows you to iterate, design, and code at the speed of thought. By using local files as a "shared blackboard," agents can collaborate, cross-check, and implement complex architectures while you monitor the entire conversation flow in real-time through a dedicated HUD.
 
@@ -197,7 +204,29 @@ The basic command structure to interact with your defined agents is:
 
 #### GitHub Adapter (`@github.*`) - NEW in v0.13.0
 
-Integrate GitHub repositories directly into your terminal flow. All commands support the `-w` flag to save outputs locally, making them perfect inputs (`-r`) for your AI agents.
+Integrate GitHub repositories directly into your terminal workflow.
+
+All commands support `-w`, so fetched outputs can be saved locally and reused as inputs (`-r`) for downstream AI agents.
+
+**Note:** In the current implementation, `@github.*` commands require a GitHub token even for public repositories.
+
+Supported commands:
+
+- `@github.repo` — repository metadata
+- `@github.tree` — directory listing for the root or a specific path
+- `@github.file` — file content read
+- `@github.issue` — single issue detail (**issue-only; PRs are not supported in v1**)
+- `@github.issues` — issue list (PR entries are filtered out)
+
+Examples:
+
+```bash
+% @github.repo --repo "ashiras/multi-ai-cli"
+% @github.tree --repo "ashiras/multi-ai-cli" --path "src/"
+% @github.file --repo "ashiras/multi-ai-cli" --path "README.md" -w remote_readme.md
+% @github.issue --repo "ashiras/multi-ai-cli" --number 40 -w issue_40.md
+% @github.issues --repo "ashiras/multi-ai-cli" --state open --limit 20
+```
 
 Requires the `GITHUB_TOKEN` environment variable or INI configuration.
 
@@ -206,7 +235,10 @@ Requires the `GITHUB_TOKEN` environment variable or INI configuration.
 % @github.repo --repo "ashiras/multi-ai-cli" -w repo_info.md
 ```
 
-**2. `@github.tree`**: Fetch directory listings or the full file tree.
+**2. `@github.tree`**: 
+- Fetch a directory listing for the repository root or a specific path.
+- Shallow by default; recursive full-tree output is not part of the current MVP.
+
 ```bash
 # Fetch root directory
 % @github.tree --repo "ashiras/multi-ai-cli"
