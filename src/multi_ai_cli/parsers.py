@@ -14,12 +14,9 @@ from .utils import secure_resolve_path
 
 WRITE_MODE_RAW = "raw"
 WRITE_MODE_CODE = "code"
-VALID_COMMANDS = {
-    "gemini",
-    "gpt",
-    "claude",
-    "grok",
-    "local",
+
+# Non-agent commands (adapters, utilities)
+BUILTIN_COMMANDS = {
     "sh",
     "scrub",
     "flush",
@@ -27,6 +24,19 @@ VALID_COMMANDS = {
     "figma.pull",
     "figma.push",
 }
+
+
+def get_valid_commands() -> set[str]:
+    """
+    Returns the set of all currently valid command names.
+    Agent keys + built-in commands.
+
+    Returns:
+        set[str]: Set of all valid command names.
+    """
+    from .registry import agent_registry
+
+    return set(agent_registry.keys()) | BUILTIN_COMMANDS
 
 
 @dataclass
@@ -65,9 +75,6 @@ def _parse_write_flag(token: str) -> tuple[str | None, bool]:
       - ``-w:raw``, ``--write:raw``   → raw
       - ``-w:code``, ``--write:code`` → code
 
-    Prints an error message to stdout if an unknown write modifier is
-    encountered.
-
     Args:
         token (str): The token to parse.
 
@@ -101,9 +108,6 @@ def parse_cli_input(parts: list[str]) -> ParsedInput | None:
       - ``-m`` / ``--message`` <text> (repeatable)
       - ``-e`` / ``--edit``
       - Bare tokens → a1 (context/title)
-
-    Prints error messages to stdout and returns ``None`` if required
-    arguments are missing or an invalid write modifier is specified.
 
     Args:
         parts (list[str]): List of command-line tokens.
@@ -372,9 +376,6 @@ def parse_sequence_steps(editor_content: str) -> list[list[list[str]]] | None:
     """
     Parses full editor content into a nested list of tokenized commands.
 
-    Prints error messages to stdout and returns ``None`` if an empty task,
-    parse error, or unknown command is encountered during step processing.
-
     Args:
         editor_content (str): The raw editor content defining the sequence.
 
@@ -421,13 +422,12 @@ def parse_sequence_steps(editor_content: str) -> list[list[list[str]]] | None:
                     continue
 
                 cmd_key = tokens[0].lower().replace("@", "")
-                if cmd_key not in VALID_COMMANDS:
+                valid = get_valid_commands()
+                if cmd_key not in valid:
                     print(
                         f"[!] Step {global_step_idx}, parallel task {seg_idx}: Unknown command '{tokens[0]}'"
                     )
-                    print(
-                        f"    Available: {', '.join('@' + c for c in sorted(VALID_COMMANDS))}"
-                    )
+                    print(f"    Available: {', '.join('@' + c for c in sorted(valid))}")
                     return None
 
                 if not tokens[0].startswith("@"):
@@ -452,11 +452,10 @@ def parse_sequence_steps(editor_content: str) -> list[list[list[str]]] | None:
                 continue
 
             cmd_key = tokens[0].lower().replace("@", "")
-            if cmd_key not in VALID_COMMANDS:
+            valid = get_valid_commands()
+            if cmd_key not in valid:
                 print(f"[!] Step {global_step_idx}: Unknown command '{tokens[0]}'")
-                print(
-                    f"    Available: {', '.join('@' + c for c in sorted(VALID_COMMANDS))}"
-                )
+                print(f"    Available: {', '.join('@' + c for c in sorted(valid))}")
                 return None
 
             if not tokens[0].startswith("@"):
@@ -472,10 +471,6 @@ def _parse_sh_input(parts: list[str]) -> ParsedShInput | None:
     Parses @sh command tokens into ``ParsedShInput``.
 
     Syntax: ``@sh ["command"] [-r file] [-w output] [--shell]``
-
-    Prints error messages to stdout and returns ``None`` if required
-    arguments are missing, flags are specified multiple times, or no
-    command/file is specified.
 
     Args:
         parts (list[str]): The list of command tokens.

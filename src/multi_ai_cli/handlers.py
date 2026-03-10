@@ -1,7 +1,7 @@
 """
 Command handlers for Multi-AI CLI.
 
-Processes user commands (@model, @sh, @sequence, @scrub, etc.) and
+Processes user commands (@agent, @sh, @sequence, @scrub, etc.) and
 dispatches them.
 """
 
@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .adapters.shell import ShellAdapter
 from .adapters.shell.adapter import ShellCommandBuildError
 from .adapters.shell.models import ShellResult
-from .config import config, engines, logger
+from .config import agent_engines, config, logger
 from .parsers import (
     ParsedInput,
     ParsedShInput,
@@ -75,13 +75,14 @@ def dispatch_command(parts: list[str]) -> bool:
 
         return handle_figma_push(parts)
 
-    target_key = cmd.replace("@", "")
-    if target_key in engines:
+    # Resolve by agent key
+    target_key = cmd.replace("@", "").lower()
+    if target_key in agent_engines:
         return handle_ai_interaction(parts)
 
     safe_print(f"[!] Unknown command: '{cmd}'")
     safe_print(
-        f"    Available: {', '.join('@' + k for k in engines.keys())}, "
+        f"    Available: {', '.join('@' + k for k in sorted(agent_engines.keys()))}, "
         f"@efficient, @scrub, @sequence, @sh, @figma.pull, @figma.push, exit"
     )
     return False
@@ -89,20 +90,20 @@ def dispatch_command(parts: list[str]) -> bool:
 
 def handle_scrub(parts: list[str]) -> None:
     """
-    Handles @scrub / @flush command to clear engine history.
+    Handles @scrub / @flush command to clear agent history.
 
     Args:
         parts (list[str]): List of command parts.
     """
     target = parts[1].lower() if len(parts) > 1 else "all"
-    valid_targets = set(engines.keys()) | {"all"}
+    valid_targets = set(agent_engines.keys()) | {"all"}
 
     if target not in valid_targets:
         print(f"[!] Invalid target '{target}'. Valid: {', '.join(valid_targets)}")
         return
 
-    for name, engine in engines.items():
-        if target in ["all", name]:
+    for agent_key, engine in agent_engines.items():
+        if target in ["all", agent_key]:
             engine.scrub()
             print(f"[*] {engine.name} memory scrubbed.")
 
@@ -118,7 +119,7 @@ def handle_efficient(parts: list[str]) -> None:
         print("[!] Usage: @efficient [target/all] <filename.txt>")
         return
 
-    if parts[1].lower() in (list(engines.keys()) + ["all"]):
+    if parts[1].lower() in (list(agent_engines.keys()) + ["all"]):
         target = parts[1].lower()
         filename = parts[2] if len(parts) > 2 else None
     else:
@@ -134,8 +135,8 @@ def handle_efficient(parts: list[str]) -> None:
         with open(filepath, encoding="utf-8") as f:
             content = f.read().strip()
 
-        for name, engine in engines.items():
-            if target in ["all", name]:
+        for agent_key, engine in agent_engines.items():
+            if target in ["all", agent_key]:
                 engine.load_persona(content, filename)
                 print(f"[*] {engine.name} persona loaded: '{filename}'.")
     except Exception as e:
@@ -144,7 +145,7 @@ def handle_efficient(parts: list[str]) -> None:
 
 def handle_ai_interaction(parts: list[str]) -> bool:
     """
-    Handles interaction with a specific AI model (@gemini "prompt" ...).
+    Handles interaction with a specific AI agent (@gpt.doc "prompt" ...).
 
     Supports flags: -m, -r, -w[:raw|:code], -e
 
@@ -152,14 +153,13 @@ def handle_ai_interaction(parts: list[str]) -> bool:
         parts (list[str]): List of command parts to interact with AI.
 
     Returns:
-        bool: True if interaction succeeded, False otherwise. Returns
-            False if prompt building fails or an AI engine error occurs.
+        bool: True if interaction succeeded, False otherwise.
     """
     target_key = parts[0].lower().replace("@", "")
-    engine = engines.get(target_key)
+    engine = agent_engines.get(target_key)
 
     if not engine:
-        safe_print(f"[!] Engine '{target_key}' not found.")
+        safe_print(f"[!] Agent '@{target_key}' not found.")
         return False
 
     parsed: ParsedInput | None = parse_cli_input(parts)
@@ -235,13 +235,6 @@ def handle_sh(parts: list[str]) -> bool:
 
     Returns:
         bool: True if shell command execution succeeded, False otherwise.
-            Returns False if command parsing fails, the command is not
-            found, times out, or another execution error occurs.
-
-    Examples:
-        >>> handle_sh(["@sh", "ls -la"])
-        >>> handle_sh(["@sh", "-r", "script.py", "-w", "output.json"])
-        >>> handle_sh(["@sh", "--shell", "echo $HOME | grep user", "-w", "result.md"])
     """
     parsed: ParsedShInput | None = _parse_sh_input(parts)
     if parsed is None:
@@ -249,7 +242,6 @@ def handle_sh(parts: list[str]) -> bool:
 
     adapter = ShellAdapter()
 
-    # --- Build command (before execution, so we can display it) ---
     def _resolve_path(filename: str) -> str:
         return secure_resolve_path(filename, "data", config=config)
 
@@ -266,13 +258,11 @@ def handle_sh(parts: list[str]) -> bool:
 
     cmd_display = shlex.join(cmd) if isinstance(cmd, list) else cmd
 
-    # --- Pre-execution display (must happen BEFORE subprocess runs) ---
     logger.info(f"@sh: Executing '{cmd_display}' (shell={use_shell})")
     print(f"[*] @sh: Executing: {cmd_display}")
     if use_shell:
         print("[*] @sh: --shell mode enabled (shell=True)")
 
-    # --- Execute command via adapter ---
     try:
         shell_result: ShellResult = adapter.execute_command(cmd, use_shell)
     except FileNotFoundError as e:
@@ -288,7 +278,6 @@ def handle_sh(parts: list[str]) -> bool:
         logger.error(f"@sh: Execution error: {e}")
         return False
 
-    # --- Post-execution display ---
     exit_code = shell_result.exit_code
     stdout = shell_result.stdout
     stderr = shell_result.stderr
@@ -332,7 +321,6 @@ def handle_sh(parts: list[str]) -> bool:
             print(display_stderr)
             print("--- end stderr ---")
 
-    # --- Artifact output ---
     if parsed.write_file:
         try:
             out_path = secure_resolve_path(parsed.write_file, "data", config=config)
@@ -369,17 +357,9 @@ def handle_sequence(parts: list[str]) -> None:
     """
     Handles @sequence command (requires -e/--edit flag).
 
-    This command allows executing a series of commands defined in a
-    temporary editor. Steps can be executed sequentially or in parallel.
-    If any step fails, the sequence halts immediately (cascade stop) and
-    subsequent steps are skipped.
-
     Args:
         parts (list[str]): List of command parts, expecting the ``-e`` or
             ``--edit`` flag.
-
-    Examples:
-        >>> handle_sequence(["@sequence", "-e"])
     """
     has_edit = any(t in ("-e", "--edit") for t in parts[1:])
 
@@ -407,6 +387,25 @@ def handle_sequence(parts: list[str]) -> None:
         is_parallel = len(step_tasks) > 1
 
         if is_parallel:
+            # Validate duplicate agents within the parallel block
+            from .registry import validate_no_duplicate_agents_in_parallel
+
+            parallel_agent_keys = []
+            for task in step_tasks:
+                cmd_key = task[0].lower().replace("@", "")
+                if cmd_key in agent_engines:
+                    parallel_agent_keys.append(cmd_key)
+
+            try:
+                validate_no_duplicate_agents_in_parallel(parallel_agent_keys)
+            except ValueError as e:
+                print(f"[!] Step {step_idx}/{total_steps}: {e}")
+                print(
+                    f"[!] Cascade Stop: {total_steps - step_idx} remaining step(s) skipped."
+                )
+                logger.error(f"@sequence validation error at step {step_idx}: {e}")
+                return
+
             print(
                 f"[*] Executing Step {step_idx}/{total_steps} [PARALLEL: {len(step_tasks)} tasks]..."
             )

@@ -85,13 +85,6 @@ def open_editor_for_prompt(
     Returns the content written by the user (after stripping comments),
     or ``None`` if cancelled/empty.
 
-    Flow:
-      1. Create temp file with helpful header comment.
-      2. Launch editor.
-      3. Read back content, ignore lines starting with '#'.
-      4. Clean up temp file.
-      5. Return prompt text or ``None``.
-
     Args:
         logger (logging.Logger | None): Logger instance to log messages;
             defaults to MultiAI logger.
@@ -213,26 +206,34 @@ def clear_thinking_line() -> None:
         print(" " * (cols - 1), end="\r", flush=True)
 
 
-def print_welcome_banner(engines: dict[str, "AIEngine"], is_log_enabled: bool) -> None:
+def print_welcome_banner(
+    agent_engines: dict[str, "AIEngine"],
+    is_log_enabled: bool,
+) -> None:
     """
-    Displays the startup banner with model info and available commands.
+    Displays the startup banner with agent-to-model info and available commands.
 
     Args:
-        engines (dict[str, AIEngine]): Dictionary of available model engines.
+        agent_engines (dict[str, AIEngine]): Dictionary of agent key to
+            AIEngine instances.
         is_log_enabled (bool): Whether logging is enabled.
     """
     print("==================================================")
-    print(f"  Multi-AI CLI v{__version__} (Raw-by-Default Write Mode)")
-    for name, eng in engines.items():
-        print(f"  {eng.name:<6}: {eng.model_name}")
+    print(f"  Multi-AI CLI v{__version__} (Agent/Engine Mode)")
+    print("==================================================")
+
+    for agent_key, eng in sorted(agent_engines.items()):
+        label = f"  @{agent_key}"
+        print(f"{label:<20} -> {eng.model_name}")
+
     print("==================================================")
 
     log_status = (
         "Disabled (Stealth)" if not is_log_enabled else "Enabled (tail-f logs/chat.log)"
     )
     print(f"[*] Logging: {log_status}")
-    print("[*] Commands: @model, @efficient, @scrub, @sequence, @sh, exit")
-    print("[*] Editor:   @model -e | --edit  (uses $EDITOR or vi)")
+    print("[*] Commands: @<agent>, @efficient, @scrub, @sequence, @sh, exit")
+    print("[*] Editor:   @<agent> -e | --edit  (uses $EDITOR or vi)")
     print("[*] Sequence: @sequence -e  (multi-step pipeline via editor)")
     print("[*]           Use '->' to chain steps in editor mode")
     print("[*]           Use '[ cmd1 || cmd2 ]' for parallel execution")
@@ -271,8 +272,6 @@ def _get_cfg_int(
 def _make_continue_prompt(tail: str) -> str:
     """
     Builds a continuation instruction anchored by the tail of the previous output.
-
-    Uses fenced block to avoid quote/escape issues.
 
     Args:
         tail (str): The tail of the previous output for reference.
