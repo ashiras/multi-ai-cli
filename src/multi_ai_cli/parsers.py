@@ -23,6 +23,11 @@ BUILTIN_COMMANDS = {
     "efficient",
     "figma.pull",
     "figma.push",
+    "github.repo",
+    "github.tree",
+    "github.file",
+    "github.issue",
+    "github.issues",
 }
 
 

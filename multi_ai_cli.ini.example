@@ -214,3 +214,16 @@ log_level = INFO
 # ------------------------------------------------------------------------------
 [FIGMA]
 handoff_dir = work_data/figma_handoff
+
+
+# ------------------------------------------------------------------------------
+# GitHub read-only adapter configuration
+# Used by @github.* commands.
+# Environment variables override these values:
+#   GITHUB_TOKEN
+#   GITHUB_API_BASE_URL
+# For organization/private repositories, ensure the token Resource owner
+# and repository permissions are configured correctly.
+# ------------------------------------------------------------------------------
+token = ...
+api_base_url = https://api.github.com

@@ -75,6 +75,32 @@ def dispatch_command(parts: list[str]) -> bool:
 
         return handle_figma_push(parts)
 
+    # GitHub adapter commands
+    if cmd == "@github.repo":
+        from .adapters.github.facade import handle_github_repo
+
+        return handle_github_repo(parts)
+
+    if cmd == "@github.tree":
+        from .adapters.github.facade import handle_github_tree
+
+        return handle_github_tree(parts)
+
+    if cmd == "@github.file":
+        from .adapters.github.facade import handle_github_file
+
+        return handle_github_file(parts)
+
+    if cmd == "@github.issue":
+        from .adapters.github.facade import handle_github_issue
+
+        return handle_github_issue(parts)
+
+    if cmd == "@github.issues":
+        from .adapters.github.facade import handle_github_issues
+
+        return handle_github_issues(parts)
+
     # Resolve by agent key
     target_key = cmd.replace("@", "").lower()
     if target_key in agent_engines:
@@ -83,7 +109,8 @@ def dispatch_command(parts: list[str]) -> bool:
     safe_print(f"[!] Unknown command: '{cmd}'")
     safe_print(
         f"    Available: {', '.join('@' + k for k in sorted(agent_engines.keys()))}, "
-        f"@efficient, @scrub, @sequence, @sh, @figma.pull, @figma.push, exit"
+        f"@efficient, @scrub, @sequence, @sh, @figma.pull, @figma.push, "
+        f"@github.repo, @github.tree, @github.file, @github.issue, @github.issues, exit"
     )
     return False
 

@@ -592,3 +592,55 @@ def get_figma_token() -> str:
         str: The Figma access token.
     """
     return get_api_key("figma_access_token", "FIGMA_ACCESS_TOKEN")
+
+
+def get_github_token() -> str:
+    """
+    Retrieves the GitHub access token.
+
+    Priority:
+    1. Environment variable GITHUB_TOKEN
+    2. INI [GITHUB] token
+
+    Raises:
+        ValueError: If token is not found in either source.
+
+    Returns:
+        str: The GitHub access token.
+    """
+    val = os.environ.get("GITHUB_TOKEN", "").strip()
+    if val:
+        return val
+
+    val = config.get("GITHUB", "token", fallback="").strip()
+    if val:
+        return val
+
+    ini_display = INI_PATH or "multi_ai_cli.ini"
+    raise ValueError(
+        f"GitHub token is missing. Set GITHUB_TOKEN environment variable "
+        f"or add [GITHUB] token to {ini_display}."
+    )
+
+
+def get_github_api_base_url() -> str:
+    """
+    Retrieves the GitHub API base URL.
+
+    Priority:
+    1. Environment variable GITHUB_API_BASE_URL
+    2. INI [GITHUB] api_base_url
+    3. Default: https://api.github.com
+
+    Returns:
+        str: The GitHub API base URL (without trailing slash).
+    """
+    val = os.environ.get("GITHUB_API_BASE_URL", "").strip()
+    if val:
+        return val.rstrip("/")
+
+    val = config.get("GITHUB", "api_base_url", fallback="").strip()
+    if val:
+        return val.rstrip("/")
+
+    return "https://api.github.com"
