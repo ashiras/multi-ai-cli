@@ -35,6 +35,46 @@ WRITE_MODE_RAW = "raw"
 WRITE_MODE_CODE = "code"
 
 
+def handle_pause(parts: list[str]) -> bool:
+    """
+    Handles the @pause control command for interactive pipeline execution.
+
+    Accepts only ``@pause`` with no extra arguments. Prompts the user to
+    either continue the pipeline by pressing Enter or abort it by typing
+    ``q``.
+
+    Args:
+        parts (list[str]): Tokenized command parts.
+
+    Returns:
+        bool: ``True`` if the user continues, ``False`` if the command is
+        invalid, input cannot be read, or the user aborts.
+    """
+    if len(parts) != 1:
+        print("[!] Usage: @pause")
+        return False
+
+    while True:
+        try:
+            answer = (
+                input("[*] Press Enter to continue, or type 'q' to abort: ")
+                .strip()
+                .lower()
+            )
+        except EOFError:
+            print("[!] @pause could not read interactive input.")
+            logger.error("@pause: EOF while waiting for user input")
+            return False
+
+        if answer == "":
+            logger.info("@pause: continued by user")
+            return True
+        if answer == "q":
+            logger.info("@pause: aborted by user")
+            return False
+        print("[!] Invalid input. Press Enter to continue, or type 'q' to abort.")
+
+
 def dispatch_command(parts: list[str]) -> bool:
     """
     Routes the parsed command tokens to the appropriate handler.
@@ -53,6 +93,9 @@ def dispatch_command(parts: list[str]) -> bool:
     if cmd in ["@scrub", "@flush"]:
         handle_scrub(parts)
         return True
+
+    if cmd == "@pause":
+        return handle_pause(parts)
 
     if cmd == "@efficient":
         handle_efficient(parts)
@@ -109,7 +152,7 @@ def dispatch_command(parts: list[str]) -> bool:
     safe_print(f"[!] Unknown command: '{cmd}'")
     safe_print(
         f"    Available: {', '.join('@' + k for k in sorted(agent_engines.keys()))}, "
-        f"@efficient, @scrub, @sequence, @sh, @figma.pull, @figma.push, "
+        f"@pause, @efficient, @scrub, @sequence, @sh, @figma.pull, @figma.push, "
         f"@github.repo, @github.tree, @github.file, @github.issue, @github.issues, exit"
     )
     return False
@@ -417,6 +460,24 @@ def handle_sequence(parts: list[str]) -> None:
         is_parallel = len(step_tasks) > 1
 
         if is_parallel:
+            # Reject @pause inside parallel blocks — interactive input()
+            # is incompatible with concurrent ThreadPoolExecutor execution
+            for t_idx, task in enumerate(step_tasks, 1):
+                task_cmd = task[0].lower()
+                if task_cmd == "@pause":
+                    print(
+                        f"[!] Step {step_idx}/{total_steps}: "
+                        f"@pause cannot be used inside a parallel block (task {t_idx})."
+                    )
+                    print(
+                        f"[!] Cascade Stop: {total_steps - step_idx} remaining step(s) skipped."
+                    )
+                    logger.error(
+                        f"@sequence validation error at step {step_idx}: "
+                        f"@pause in parallel block"
+                    )
+                    return
+
             # Validate duplicate agents within the parallel block
             from .registry import validate_no_duplicate_agents_in_parallel
 

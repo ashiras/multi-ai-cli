@@ -326,6 +326,16 @@ Build sophisticated, multi-agent pipelines using the `@sequence -e` command. It 
 -> @gpt.code "Fix linting errors and apply security review suggestions." -r app.py -r security_review.md -r lint_report.md -w:code app_final.py
 ```
 
+### Human-in-the-loop pause (v0.13.2)
+
+Use `@pause` to stop a pipeline and manually review generated files before continuing.
+
+```text
+@gpt "Summarize issue.md into spec.md" -r issue.md -w spec.md
+-> @pause
+-> @claude "Create design.md from spec.md" -r spec.md -w design.md
+```
+
 ### 📝 Appendix: Definition of HAN Syntax (Human-Agent-Network)
 
 HAN is a domain-specific notation designed to describe the flow of information and decision-making between human users and AI agents.

@@ -21,6 +21,7 @@ BUILTIN_COMMANDS = {
     "scrub",
     "flush",
     "efficient",
+    "pause",
     "figma.pull",
     "figma.push",
     "github.repo",

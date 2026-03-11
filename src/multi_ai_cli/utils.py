@@ -232,7 +232,9 @@ def print_welcome_banner(
         "Disabled (Stealth)" if not is_log_enabled else "Enabled (tail-f logs/chat.log)"
     )
     print(f"[*] Logging: {log_status}")
-    print("[*] Commands: @<agent>, @efficient, @scrub, @sequence, @sh, @github.*, exit")
+    print(
+        "[*] Commands: @<agent>, @pause, @efficient, @scrub, @sequence, @sh, @github.*, exit"
+    )
     print("[*] Editor:   @<agent> -e | --edit  (uses $EDITOR or vi)")
     print("[*] Sequence: @sequence -e  (multi-step pipeline via editor)")
     print("[*]           Use '->' to chain steps in editor mode")
@@ -250,6 +252,7 @@ def print_welcome_banner(
     print("[*]           @github.file --repo owner/name --path README.md")
     print("[*]           @github.issue --repo owner/name --number 40")
     print("[*]           @github.issues --repo owner/name --state open --limit 20")
+    print("[*] Pause:    @pause  (interactive pause in pipelines / sequences)")
 
 
 def _get_cfg_int(
