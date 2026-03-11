@@ -30,6 +30,24 @@ BUILTIN_COMMANDS = {
     "github.issues",
 }
 
+# Known flags for @agent commands and whether they require a value
+_AGENT_FLAGS: dict[str, bool] = {
+    "-r": True,
+    "--read": True,
+    "-w": True,
+    "--write": True,
+    "-m": True,
+    "--message": True,
+    "-e": False,
+    "--edit": False,
+}
+
+# Write-flag pattern: -w, --write, -w:raw, --write:raw, -w:code, --write:code
+_WRITE_FLAG_PATTERN = re.compile(r"^(?:-w|--write)(?::(\w+))?$")
+
+# Pattern that identifies tokens that look like flags (start with -)
+_FLAG_LIKE_PATTERN = re.compile(r"^-")
+
 
 def get_valid_commands() -> set[str]:
     """
@@ -71,41 +89,215 @@ class ParsedInput:
             self.read_files = []
 
 
-def _parse_write_flag(token: str) -> tuple[str | None, bool]:
+def _is_known_flag(token: str) -> bool:
     """
-    Parses write flag variants and returns (mode, is_write_flag).
+    Checks if the token is a recognized @agent flag or a write-flag family token.
+    """
+    if token in _AGENT_FLAGS:
+        return True
 
-    Supported:
-      - ``-w``, ``--write``           → raw
-      - ``-w:raw``, ``--write:raw``   → raw
-      - ``-w:code``, ``--write:code`` → code
+    _, is_write, _ = _parse_write_flag(token)
+    return is_write
+
+
+def _is_unknown_flag(token: str) -> bool:
+    """
+    Checks if the token looks like a flag (starts with -) but is not recognized.
 
     Args:
-        token (str): The token to parse.
+        token (str): The token to check.
 
     Returns:
-        tuple[str | None, bool]: A tuple containing the write mode and a
-            flag indicating if it is a write flag.
+        bool: True if the token appears to be an unknown flag.
     """
-    pattern = r"^(?:-w|--write)(?::(\w+))?$"
-    m = re.match(pattern, token)
+    if not _FLAG_LIKE_PATTERN.match(token):
+        return False
+    return not _is_known_flag(token)
+
+
+def _parse_write_flag(token: str) -> tuple[str | None, bool, str | None]:
+    """
+    Parses write flag variants.
+
+    Returns:
+        tuple[str | None, bool, str | None]:
+            (write_mode, is_write_flag, error_message)
+
+        - If token is not a write flag:
+            (None, False, None)
+        - If token is a valid write flag:
+            ("raw" | "code", True, None)
+        - If token is a write flag with an invalid modifier:
+            (None, True, "...")
+    """
+    if not (token.startswith("-w") or token.startswith("--write")):
+        return None, False, None
+
+    m = _WRITE_FLAG_PATTERN.match(token)
     if not m:
-        return None, False
+        return (
+            None,
+            True,
+            f"[!] Unknown write modifier in '{token}'. Valid: :raw, :code",
+        )
 
     modifier = m.group(1)
 
     if modifier is None or modifier == "raw":
-        return WRITE_MODE_RAW, True
-    elif modifier == "code":
-        return WRITE_MODE_CODE, True
-    else:
-        print(f"[!] Unknown write modifier ':{modifier}'. Valid: :raw, :code")
-        return None, False
+        return WRITE_MODE_RAW, True, None
+    if modifier == "code":
+        return WRITE_MODE_CODE, True, None
+
+    return None, True, f"[!] Unknown write modifier ':{modifier}'. Valid: :raw, :code"
+
+
+def _tokenize_agent_input(parts: list[str]) -> list[str]:
+    """
+    Extracts the token list for agent parsing, skipping the command token at index 0.
+
+    Args:
+        parts (list[str]): Full command parts including the @agent token.
+
+    Returns:
+        list[str]: Tokens after the command token.
+    """
+    return parts[1:] if len(parts) > 1 else []
+
+
+def _parse_agent_flags(tokens: list[str]) -> ParsedInput | None:
+    """
+    Parses agent command tokens into flags and bare prompt words.
+
+    This implements a strict two-pass approach:
+      1. Identify and consume known flags and their values.
+      2. Collect remaining tokens as bare prompt text (a1).
+      3. Reject any unknown flag-like tokens.
+
+    Args:
+        tokens (list[str]): Tokens after the @agent command name.
+
+    Returns:
+        ParsedInput | None: Parsed result, or None on validation failure.
+    """
+    parsed = ParsedInput()
+    bare_tokens: list[str] = []
+
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+
+        # Check for unknown flags early
+        if _is_unknown_flag(token):
+            print(f"[!] Unknown flag: '{token}'")
+            print(
+                "[*] Valid flags: -r/--read, -w/--write, -w:raw, -w:code, "
+                "-m/--message, -e/--edit"
+            )
+            return None
+
+        # -r / --read (repeatable, requires value)
+        if token in ("-r", "--read"):
+            if i + 1 >= len(tokens):
+                print(f"[!] Flag '{token}' requires a filename argument.")
+                return None
+            next_val = tokens[i + 1]
+            if _is_known_flag(next_val) or _is_unknown_flag(next_val):
+                print(
+                    f"[!] Flag '{token}' requires a filename argument, got '{next_val}'."
+                )
+                return None
+            parsed.read_files.append(next_val)
+            i += 2
+            continue
+
+        # -w / --write / -w:raw / -w:code (requires value)
+        write_mode, is_write, write_error = _parse_write_flag(token)
+        if is_write:
+            if write_error is not None:
+                print(write_error)
+                return None
+
+            if write_mode is None:
+                print(f"[!] Internal parser error for write flag '{token}'.")
+                return None
+
+            if i + 1 >= len(tokens):
+                print(f"[!] Flag '{token}' requires a filename argument.")
+                return None
+
+            next_val = tokens[i + 1]
+            if _is_known_flag(next_val) or _is_unknown_flag(next_val):
+                print(
+                    f"[!] Flag '{token}' requires a filename argument, got '{next_val}'."
+                )
+                return None
+
+            if parsed.write_file is not None:
+                print("[!] Warning: write flag specified multiple times. Overwriting.")
+
+            parsed.write_file = next_val
+            parsed.write_mode = write_mode
+            i += 2
+            continue
+
+        # -m / --message (repeatable, requires value)
+        if token in ("-m", "--message"):
+            if i + 1 >= len(tokens):
+                print(f"[!] Flag '{token}' requires a text argument.")
+                return None
+            next_val = tokens[i + 1]
+            if _is_known_flag(next_val) or _is_unknown_flag(next_val):
+                print(f"[!] Flag '{token}' requires a text argument, got '{next_val}'.")
+                return None
+            if parsed.message:
+                parsed.message += " " + next_val
+            else:
+                parsed.message = next_val
+            i += 2
+            continue
+
+        # -e / --edit (no value)
+        if token in ("-e", "--edit"):
+            parsed.use_editor = True
+            i += 1
+            continue
+
+        # Bare token — collect as prompt text
+        bare_tokens.append(token)
+        i += 1
+
+    parsed.a1 = " ".join(bare_tokens)
+    return parsed
+
+
+def _validate_parsed_input(parsed: ParsedInput) -> bool:
+    """
+    Performs final validation on the parsed agent input.
+
+    Currently checks:
+      - At least one prompt source exists (a1, message, editor, or read files).
+        (Note: this is a soft check; the caller may add editor content later.)
+
+    Args:
+        parsed (ParsedInput): The parsed input to validate.
+
+    Returns:
+        bool: True if validation passes.
+    """
+    # Validation is intentionally light here because editor content (-e)
+    # is not yet available at parse time. The handler checks for empty prompts.
+    return True
 
 
 def parse_cli_input(parts: list[str]) -> ParsedInput | None:
     """
     Parses command-line tokens into a structured ``ParsedInput`` object.
+
+    Flow:
+      1. Tokenize (skip @agent command at index 0)
+      2. Parse flags and values
+      3. Collect remaining bare tokens as prompt text
+      4. Validate the final structure
 
     Supports:
       - ``-r`` / ``--read`` <file> (repeatable)
@@ -114,6 +306,10 @@ def parse_cli_input(parts: list[str]) -> ParsedInput | None:
       - ``-e`` / ``--edit``
       - Bare tokens → a1 (context/title)
 
+    Rejects:
+      - Unknown flags (tokens starting with ``-`` that are not recognized)
+      - Missing flag values
+
     Args:
         parts (list[str]): List of command-line tokens.
 
@@ -121,60 +317,14 @@ def parse_cli_input(parts: list[str]) -> ParsedInput | None:
         ParsedInput | None: A ``ParsedInput`` object if parsing succeeds,
             or ``None`` if it fails.
     """
-    parsed = ParsedInput()
-    indices_to_skip = {0}
+    tokens = _tokenize_agent_input(parts)
+    parsed = _parse_agent_flags(tokens)
 
-    i = 1
-    while i < len(parts):
-        token = parts[i]
+    if parsed is None:
+        return None
 
-        if token in ("-r", "--read"):
-            if i + 1 >= len(parts):
-                print(f"[!] Flag '{token}' requires a filename argument.")
-                return None
-            parsed.read_files.append(parts[i + 1])
-            indices_to_skip.update({i, i + 1})
-            i += 2
-            continue
-
-        write_mode, is_write = _parse_write_flag(token)
-        if is_write:
-            if write_mode is None:
-                return None
-            if i + 1 >= len(parts):
-                print(f"[!] Flag '{token}' requires a filename argument.")
-                return None
-            if parsed.write_file is not None:
-                print("[!] Warning: write flag specified multiple times. Overwriting.")
-            parsed.write_file = parts[i + 1]
-            parsed.write_mode = write_mode
-            indices_to_skip.update({i, i + 1})
-            i += 2
-            continue
-
-        if token in ("-m", "--message"):
-            if i + 1 >= len(parts):
-                print(f"[!] Flag '{token}' requires a text argument.")
-                return None
-            msg_val = parts[i + 1]
-            if parsed.message:
-                parsed.message += " " + msg_val
-            else:
-                parsed.message = msg_val
-            indices_to_skip.update({i, i + 1})
-            i += 2
-            continue
-
-        if token in ("-e", "--edit"):
-            parsed.use_editor = True
-            indices_to_skip.add(i)
-            i += 1
-            continue
-
-        i += 1
-
-    a1_tokens = [parts[j] for j in range(len(parts)) if j not in indices_to_skip]
-    parsed.a1 = " ".join(a1_tokens)
+    if not _validate_parsed_input(parsed):
+        return None
 
     return parsed
 

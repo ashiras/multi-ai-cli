@@ -176,6 +176,9 @@ def handle_ai_interaction(parts: list[str]) -> bool:
 
     Supports flags: -m, -r, -w[:raw|:code], -e
 
+    The parser (parse_cli_input) validates flags strictly:
+    unknown flags are rejected, missing flag values cause errors.
+
     Args:
         parts (list[str]): List of command parts to interact with AI.
 

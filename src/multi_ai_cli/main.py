@@ -16,6 +16,41 @@ from .handlers import dispatch_command
 from .utils import print_welcome_banner
 
 
+def _read_interactive_input() -> str | None:
+    r"""
+    Reads a single logical command from interactive input, supporting
+    line continuation with trailing backslash.
+
+    If a line ends with ``\\``, the backslash is stripped and the next
+    line is read and appended. Lines are joined with a single space.
+    The continuation prompt changes to ``> `` for subsequent lines.
+
+    Returns:
+        str | None: The joined input string (stripped), or None if
+            EOF is encountered on the first line.
+    """
+    try:
+        first_line = input("% ")
+    except EOFError:
+        return None
+
+    lines = [first_line]
+
+    while lines[-1].rstrip().endswith("\\"):
+        # Strip the trailing backslash from the current last line
+        stripped = lines[-1].rstrip()
+        lines[-1] = stripped[:-1]
+        try:
+            continuation = input("> ")
+        except EOFError:
+            print("[!] Incomplete continued input.")
+            return None
+        lines.append(continuation)
+
+    # Join continuation lines with a space and strip outer whitespace
+    return " ".join(lines).strip()
+
+
 def main() -> None:
     """
     Main entry point for the Multi-AI CLI application.
@@ -53,7 +88,12 @@ def main() -> None:
 
     while True:
         try:
-            user_input = input("% ").strip()
+            user_input = _read_interactive_input()
+
+            if user_input is None:
+                # EOF reached
+                logger.info("--- Session Ended (EOF) ---")
+                break
 
             if not user_input:
                 continue
