@@ -2,8 +2,8 @@
 Main entry point for the Multi-AI CLI application.
 
 This module handles the application's lifecycle, including configuration
-loading, AI engine initialization, interactive command loop, and pipeline
-execution.
+loading, AI engine initialization, mode detection (interactive REPL vs
+filter mode), and command dispatch.
 """
 
 import os
@@ -51,22 +51,13 @@ def _read_interactive_input() -> str | None:
     return " ".join(lines).strip()
 
 
-def main() -> None:
+def startup() -> None:
     """
-    Main entry point for the Multi-AI CLI application.
+    Performs shared startup tasks for both interactive and filter modes.
 
-    Loads configuration, initializes engines, and starts the interactive
-    command loop. It handles user input, command parsing (including
-    pipelining with ``->``), and command execution in a loop, allowing
-    the user to interact with the AI engines.
-
-    The application can exit early for ``--version`` or if
-    ``multi_ai_cli.ini`` is not found. It gracefully handles
-    ``KeyboardInterrupt`` and logs unexpected errors during the loop.
-
-    Raises:
-        SystemExit: If ``--version`` is passed or the INI configuration
-            file is missing.
+    Loads the INI configuration, sets up logging, and initializes
+    all AI engine instances. Exits early for --version flag or if
+    the INI file is missing.
     """
     if "--version" in sys.argv or "-v" in sys.argv:
         print(f"multi-ai version {__version__}")
@@ -74,7 +65,10 @@ def main() -> None:
 
     ini_path = "multi_ai_cli.ini"
     if not os.path.exists(ini_path):
-        print(f"[!] Error: '{ini_path}' not found in the current directory.")
+        print(
+            f"[!] Error: '{ini_path}' not found in the current directory.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     setup_config(ini_path)
@@ -84,6 +78,17 @@ def main() -> None:
 
     initialize_engines()
 
+
+def run_interactive_mode() -> int:
+    """
+    Runs the interactive REPL mode.
+
+    Displays the welcome banner and enters the command loop, processing
+    user input including pipeline chaining with '->'.
+
+    Returns:
+        int: Exit code (always 0 for normal termination).
+    """
     print_welcome_banner(agent_engines, is_log_enabled)
 
     while True:
@@ -127,7 +132,8 @@ def main() -> None:
             for step_idx, cmd_parts in enumerate(command_chain):
                 if len(command_chain) > 1:
                     print(
-                        f"\n[*] Pipeline Step {step_idx + 1}/{len(command_chain)}: {' '.join(cmd_parts)}"
+                        f"\n[*] Pipeline Step {step_idx + 1}/{len(command_chain)}: "
+                        f"{' '.join(cmd_parts)}"
                     )
 
                 success = dispatch_command(cmd_parts)
@@ -141,6 +147,30 @@ def main() -> None:
         except Exception as e:
             print(f"[!] An unexpected error occurred: {e}")
             logger.error(f"Main loop critical error: {e}")
+
+    return 0
+
+
+def main() -> None:
+    """
+    Main entry point for the Multi-AI CLI application.
+
+    Performs shared startup, then dispatches to either interactive REPL
+    mode or filter mode based on whether stdin is a TTY.
+
+    - sys.stdin.isatty() == True  -> Interactive REPL mode
+    - sys.stdin.isatty() == False -> Filter mode (stdin -> AI -> stdout)
+    """
+    startup()
+
+    if sys.stdin.isatty():
+        code = run_interactive_mode()
+    else:
+        from .filter_mode import run_filter_mode
+
+        code = run_filter_mode(sys.argv[1:])
+
+    sys.exit(code)
 
 
 if __name__ == "__main__":

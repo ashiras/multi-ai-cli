@@ -2,36 +2,42 @@
 
 ### Transform Your Terminal into a Multi-AI Strategic Hub: The Ultimate Command-Line Tool
 
-Break free from the browser copy-paste hell. Turn your terminal into a multi-agent AI war room.
+Break free from the browser copy-paste hell. Turn your terminal into a multi-agent AI war room or a powerful Unix shell filter.
 
-**Multi-AI CLI** is a lightweight command-line hub for orchestrating multiple AI agents and external adapters from one terminal session.
+**Multi-AI CLI** is a lightweight command-line hub for orchestrating multiple AI agents and external adapters. It now supports **two execution styles**:
+- **Interactive REPL Mode**: A rich, stateful environment for complex, multi-step workflows.
+- **Filter Mode**: A stateless, Unix-style `stdin -> AI -> stdout` pipeline mode.
 
 It supports:
 - multiple AI namespaces (`gpt`, `claude`, `gemini`, `grok`, `local`)
 - adapter-style integrations such as **Figma** and **GitHub**
 - artifact-based workflows using local files as a shared blackboard
 
-With the new **Agent/Engine separation**, you can bind logical agents such as `@gpt.code` or `@claude.review` to reusable engine definitions and compose them in sequential or parallel workflows.
+With the **Agent/Engine separation**, you can bind logical agents such as `@gpt.code` or `@claude.review` to reusable engine definitions and compose them in sequential or parallel workflows.
 
 Built on the philosophy of **"Command & Monitor"**, it allows you to iterate, design, and code at the speed of thought. By using local files as a "shared blackboard," agents can collaborate, cross-check, and implement complex architectures while you monitor the entire conversation flow in real-time through a dedicated HUD.
 
-Now, with **v0.13.0**, Multi-AI CLI introduces two massive upgrades:
-1. **Agent/Engine Separation Architecture**: We completely revamped how AIs are invoked. You can now define physical execution backends (`[ENGINE.*]`) and map them to logical agents with specific roles (`[AGENT.*]`). This means you can instantly switch between `@gpt`, `@gpt.code`, or `@claude.review`, each with distinct configurations but sharing the same API keys.
-2. **GitHub Adapter (`@github.*`)**: Native REST API integration brings your repositories, file trees, source code, and issues directly into your terminal. Seamlessly fetch GitHub data and feed it into your AI workflows without ever leaving the CLI.
+Now, with **v0.14.0**, Multi-AI CLI introduces a massive upgrade:
+- **Dual-Mode CLI Architecture (New in v0.14.0)**: Multi-AI CLI natively supports both an Interactive REPL and a Unix-style Filter mode. Filter mode is completely stateless and shell-friendly, guaranteeing `stdout` purity for flawless pipe (`|`) integration.
+
+*(Building on the recent v0.13.0 features)*:
+- **Agent/Engine Separation Architecture**: We completely revamped how AIs are invoked. You can now define physical execution backends (`[ENGINE.*]`) and map them to logical agents with specific roles (`[AGENT.*]`). This means you can instantly switch between `@gpt`, `@gpt.code`, or `@claude.review`, each with distinct configurations but sharing the same API keys.
+- **GitHub Adapter (`@github.*`)**: Native REST API integration brings your repositories, file trees, source code, and issues directly into your terminal. Seamlessly fetch GitHub data and feed it into your AI workflows without ever leaving the CLI.
 
 This is a sophisticated AI collaboration environment for developers, designed as a lightweight, hacker-friendly alternative to heavyweight Multi-Agent frameworks.
 
-### 🐉 Multi-AI CLI (v0.13.0: Agent/Engine Architecture & GitHub Adapter Edition)
+### 🐉 Multi-AI CLI (v0.14.0: Dual-Mode Architecture Edition)
 
 ### ✨ Features
 
--   **🧠 Agent/Engine Separation (New in v0.13.0)**: Decouple physical AI providers from logical roles. Define engines like `openai_main` or `claude_fast`, and map them to namespace+role combinations like `@gpt.code`, `@claude.review`, or `@gemini.plan`.
+-   **☯️ Dual-Mode CLI (New in v0.14.0)**: Run as an Interactive REPL for complex workflows or as a Unix-style Filter for shell pipelines. In Filter mode, `stdin` becomes the primary input, `-m` acts as an optional instruction, `-r` provides supplemental file references, and `stdout` contains only the final AI result (with diagnostics sent to `stderr`).
+-   **🧠 Agent/Engine Separation**: Decouple physical AI providers from logical roles. Define engines like `openai_main` or `claude_fast`, and map them to namespace+role combinations like `@gpt.code`, `@claude.review`, or `@gemini.plan`.
 -   **🐙 GitHub Adapter (@github)**: Instantly pull repository metadata, directory trees, file contents, and issue tracking data from GitHub directly into your local workspace.
 -   **🎼 Multi-Engine Symphony**: Seamlessly interact with multiple namespaces (`gpt`, `claude`, `gemini`, `grok`, `local`) in the same session.
 -   **🎨 Figma Adapter (@figma)**: Bridge AI and design. Pull raw design data (`@figma.pull`) or push generated content back to Figma via a local plugin bridge (`@figma.push`).
 -   **🚀 Workflow Orchestration (@sequence)**: Define and execute sophisticated multi-step AI pipelines right from your editor using **HAN Syntax**. Supports **sequential chaining (`->`)** and **parallel execution (`[ ... || ... ]`)** of AI commands, complete with artifact relay and human gates.
 -   **⚙️ Shell Orchestration (@sh)**: Integrate directly with your local shell to execute commands and scripts. Capture output as JSON or markdown artifacts.
--   **📂 Smart File I/O**: Use `-r` (`--read`) to attach files as context, and `-w` (`--write`) to save the raw AI response or extract pure code blocks (`-w:code`). Features a fixed prompt construction priority (`A1 > Message > Editor > Files`).
+-   **📂 Smart File I/O**: Use `-r` (`--read`) to attach files as context (supported in both modes). In Interactive mode, use `-w` (`--write`) to save the raw AI response or extract pure code blocks (`-w:code`), and `-e` (`--edit`) for multi-line prompts. In Filter mode, output redirection should be handled natively by the shell (`>`).
 -   **🔄 Automatic Response Continuation**: Never miss a word from your AI. Auto-detects token limits and seamlessly instructs the AI to continue exactly where it stopped.
 -   **📺 HUD Monitoring (Live Log)**: Monitor the "AI conversation" in a separate terminal window using `tail -f logs/chat.log`.
 -   **🎭 Persona Injection (@efficient)**: Inject system prompts (e.g., "Senior Architect") from local files to define agent behavior.
@@ -84,9 +90,9 @@ export FIGMA_ACCESS_TOKEN="..."
 export GITHUB_TOKEN="..." # Required for @github commands
 ```
 
-#### 2. Configuration File (`multi_ai_cli.ini`) - *New Agent/Engine Syntax*
+#### 2. Configuration File (`multi_ai_cli.ini`) - *Agent/Engine Syntax*
 
-Place `multi_ai_cli.ini` in your working directory. v0.13.0 introduces a modern architecture that separates physical `[ENGINE]` definitions from logical `[AGENT]` endpoints. 
+Place `multi_ai_cli.ini` in your working directory. The modern architecture separates physical `[ENGINE]` definitions from logical `[AGENT]` endpoints. 
 
 *(Note: The legacy `[MODELS]` format is still supported for backward compatibility, but upgrading is highly recommended).*
 
@@ -173,36 +179,107 @@ Open a second terminal window and run:
 tail -f logs/chat.log
 ```
 
+### ☯️ Dual-Mode CLI (Quick Start)
+
+You can launch Multi-AI CLI in two different ways depending on your use case:
+
+**1. Interactive REPL Mode**
+Launch the tool without piped input to enter a stateful, rich environment:
+```bash
+multi-ai
+```
+
+**2. Filter Mode (Unix-style)**
+Pipe data directly into the CLI to run a single-shot, stateless AI execution:
+```bash
+# Basic string processing
+echo "apple" | multi-ai @gpt -m "Translate this to Japanese only."
+
+# File-oriented filter
+cat specification.md | multi-ai @gpt -m "Write a detailed design document based on this specification" -r existing_code.py > detailed_design.md
+```
+
 ### 💻 Command Reference
 
-#### AI Interaction & I/O
+#### 1. Interactive REPL Mode (AI Interaction & I/O)
 
-The basic command structure to interact with your defined agents is:
+The interactive mode is the rich, stateful environment where you can use all features, adapters, and file I/O flags. The basic command structure to interact with your defined agents is:
 
 `@<namespace>[.<role>] <A1_context> [-m "message"] [-r file1...] [-w[:mode] output.txt] [-e]`
 
 -   `@<namespace>[.<role>]`: The agent you defined in your INI file (e.g., `@gpt`, `@claude.review`, `@gpt.code`).
 -   `<A1_context_words>`: Space-separated text immediately following the agent name. Acts as the primary context/title.
 -   `-m "<message>"`, `--message`: Specific instruction to send to the AI.
--   `-r <file>`, `--read`: Attaches a local file from the `data` directory to the prompt.
--   `-w[:mode] <file>`, `--write`: Saves the AI's response.
+-   `-r <file>`, `--read`: Attaches a local file from the `data` directory to the prompt (supported in both modes).
+-   `-w[:mode] <file>`, `--write`: Saves the AI's response (Interactive Mode only).
     *   **`-w <file>` or `-w:raw <file>`**: Saves the ENTIRE AI response exactly as received (default).
-    *   **`-w:code <file>`**: Extracts only the fenced code blocks (e.g., ```python ... ```) and saves them.
--   `-e`, `--edit`: Opens your default `$EDITOR` to compose a multi-line prompt.
+    *   **`-w:code <file>`**: Extracts only the fenced code blocks (e.g.,) and saves them.
+-   `-e`, `--edit`: Opens your default `$EDITOR` to compose a multi-line prompt (Interactive Mode only).
 
 **Examples:**
 ```bash
 # General query using the default GPT agent
-% @gpt "Explain how asyncio works in Python." -w asyncio_guide.md
+% @gpt "Explain how asyncio works in Python." \
+    -w asyncio_guide.md
 
 # Code generation using a specific role agent, extracting only code
-% @gpt.code "Write a fast fibonacci function using memoization." -w:code fibo.py
+% @gpt.code "Write a fast fibonacci function using memoization." \
+ -w:code fibo.py
 
 # Reviewing code with Claude
-% @claude.review "Check this script for security vulnerabilities." -r server.py -w security_report.md
+% @claude.review "Check this script for security vulnerabilities." \
+  -r server.py \
+  -w security_report.md
 ```
 
-#### GitHub Adapter (`@github.*`) - NEW in v0.13.0
+#### 2. Filter Mode (Unix-style stdin -> AI -> stdout)
+
+Filter mode starts automatically when `stdin` is piped or redirected. It is designed specifically for single-shot, shell-oriented AI execution.
+
+**Syntax:**
+```bash
+<stdin> | multi-ai @agent [-m "instruction"] [-r file ...]
+```
+
+-   **Supported Arguments**:
+    -   Exactly one `@agent` (e.g., `@gpt`, `@claude.review`)
+    -   `-m "<instruction>"`: Optional instruction/prompt for the AI.
+    -   `-r <file>`: Supplemental file references (attaches local files as context).
+-   **Unsupported Features** (These are REPL-only):
+    -   `-w`, `-e`, `@sequence`, `->`, `||`, `@sh`, `@figma.*`, `@github.*`, and other command-style interfaces.
+-   **Output Contract**:
+    -   **`stdout`**: Contains *only* the final AI result. Safe for piping to other shell commands or files.
+    -   **`stderr`**: Contains validation errors, runtime errors, or diagnostic messages.
+-   **Stateless**: Filter mode does not preserve session history across invocations.
+
+**Examples:**
+
+*Example 1: Primary input*
+```bash
+echo "This is the PRIMARY input." | multi-ai @gpt -m "Reply with exactly the primary input text."
+```
+
+*Example 2: Translation*
+```bash
+echo "apple" | multi-ai @gpt -m "Translate this to Japanese only."
+```
+
+*Example 3: Summarization to file (Use shell redirection instead of `-w`)*
+```bash
+echo "hello world" | multi-ai @gpt -m "Summarize this" > out.txt
+```
+
+*Example 4: Validation failure*
+```bash
+# This will fail and output an error to stderr because -w is not supported
+echo "hello" | multi-ai @gpt -w out.txt
+```
+
+---
+
+*(Note: The following adapters and orchestration features (`@github.*`, `@sh`, `@figma.*`, `@sequence`) are **Interactive-mode features** in the current implementation. Filter mode is intentionally limited to direct AI agent execution only.)*
+
+#### GitHub Adapter (`@github.*`) - REPL Only
 
 Integrate GitHub repositories directly into your terminal workflow.
 
@@ -230,52 +307,7 @@ Examples:
 
 Requires the `GITHUB_TOKEN` environment variable or INI configuration.
 
-**1. `@github.repo`**: Fetch repository metadata (stars, forks, description, default branch).
-```bash
-% @github.repo --repo "ashiras/multi-ai-cli" -w repo_info.md
-```
-
-**2. `@github.tree`**: 
-- Fetch a directory listing for the repository root or a specific path.
-- Shallow by default; recursive full-tree output is not part of the current MVP.
-
-```bash
-# Fetch root directory
-% @github.tree --repo "ashiras/multi-ai-cli"
-
-# Fetch a specific directory
-% @github.tree --repo "ashiras/multi-ai-cli" --path "multi_ai_cli/adapters" -w adapters_tree.md
-```
-
-**3. `@github.file`**: Download and decode the contents of a specific file.
-```bash
-% @github.file --repo "ashiras/multi-ai-cli" --path "README.md" -w remote_readme.md
-```
-
-**4. `@github.issue`**: Fetch the complete details of a specific issue (including body and labels).
-```bash
-% @github.issue --repo "ashiras/multi-ai-cli" --number 42 -w issue_42.md
-```
-
-**5. `@github.issues`**: Fetch a list of issues (summarized).
-```bash
-# List open issues (default limit is 30)
-% @github.issues --repo "ashiras/multi-ai-cli" --state open --limit 50 -w open_issues.md
-
-# Filter by label or assignee
-% @github.issues --repo "ashiras/multi-ai-cli" --label "bug" --assignee "ashiras"
-```
-
-**Workflow Example (GitHub + AI):**
-```bash
-# 1. Fetch a specific file from GitHub
-% @github.file --repo "owner/repo" --path "src/main.py" -w main.py
-
-# 2. Have your AI review the fetched code
-% @claude.review "Refactor this code to follow SOLID principles." -r main.py -w:code main_refactored.py
-```
-
-#### Shell Orchestration (`@sh`)
+#### Shell Orchestration (`@sh`) - REPL Only
 
 Execute shell commands and scripts directly from the CLI.
 
@@ -286,14 +318,14 @@ Execute shell commands and scripts directly from the CLI.
 -   **Capture Artifacts**: Use `-w <file.json>` to capture exit code, stdout, and stderr as structured JSON, or `.md` for a human-readable text artifact.
 -   **Shell Mode**: Use `--shell` for complex commands involving pipes (`|`) or env variables. *(Warning: Allows shell injection, use with caution).*
 
-#### Figma Adapter (`@figma.*`)
+#### Figma Adapter (`@figma.*`) - REPL Only
 
 -   **`@figma.pull`**: Fetch design data.
     `@figma.pull --file <key> [--node <id> | --page <name>] -w design.json`
 -   **`@figma.push`**: Send local content to a Figma plugin bridge.
     `@figma.push -r spec.md --file <key> --page "Designs" --frame "Button"`
 
-#### Context Management
+#### Context Management - REPL Only
 
 -   `@efficient [target/all] <filename>`: Loads a persona (system prompt) from the `prompts/` dir and resets the memory for the target agent.
 -   `@scrub [target/all]`: Clears conversation history while keeping the current persona intact.
@@ -301,7 +333,7 @@ Execute shell commands and scripts directly from the CLI.
 
 ### 🚀 Workflow Orchestration with @sequence (HAN Syntax)
 
-Build sophisticated, multi-agent pipelines using the `@sequence -e` command. It opens your editor, allowing you to define complex interactions using **HAN (Human-Agent-Network) Syntax**.
+Build sophisticated, multi-agent pipelines using the `@sequence -e` command. It opens your editor, allowing you to define complex interactions using **HAN (Human-Agent-Network) Syntax**. *(Interactive Mode Only)*.
 
 -   **`->`**: Sequential execution (downstream consumes upstream output).
 -   **`[ ... || ... ]`**: Parallel execution (run multiple agents simultaneously).
@@ -336,6 +368,14 @@ Use `@pause` to stop a pipeline and manually review generated files before conti
 -> @claude "Create design.md from spec.md" -r spec.md -w design.md
 ```
 
+### ⚠️ Notes and Limitations (Dual-Mode CLI)
+
+- **Filter Mode Minimalism**: Filter mode is intentionally minimal. It supports only direct AI agents (`@gpt`, `@claude`, etc.). Orchestration, parallel execution (`||`), sequence chaining (`->`), and adapters (`@sh`, `@github.*`, `@figma.*`) are reserved for the Interactive REPL mode.
+- **No Stateful History in Filter Mode**: Every execution via pipe/redirect is a clean slate. Session memory is not preserved across filter mode invocations.
+- **Output Redirection**: Do not use the `-w` flag in Filter mode. All output formatting and file redirection is intended to be handled natively by your shell (e.g., `> file.txt`).
+- **Mode Detection**: Mode switching is currently implicit, based on `sys.stdin.isatty()`. Explicit mode flags (e.g., `--interactive`, `--filter`) are not supported yet.
+- **Testing Filter Mode**: For testing the robustness of Filter Mode integration, you can use the built-in checker script: `scripts/code_dual-mode_checker.sh`.
+
 ### 📝 Appendix: Definition of HAN Syntax (Human-Agent-Network)
 
 HAN is a domain-specific notation designed to describe the flow of information and decision-making between human users and AI agents.
@@ -353,7 +393,7 @@ N<...>   named node / label (use when you want labels other than H or A)
 {...}    role tag / label (annotation only; does not change semantics)
 - ...    node spec line (semantic; attaches to a node declaration)
 # ...    comment line (non-semantic; for humans only; may label a branch)
-## ...   block label line (semantic; attaches to the following "[ ... ]" block
+## ...   block label line (semantic; attaches to the following "[ ... ]" block)
 
 Normalization (layout):
 - Newlines and indentation do not change semantics.
@@ -384,4 +424,4 @@ Block Labels ("## ..."):
 - A block label is a "## ..." line that immediately precedes a "[" block (ignoring blank lines/indentation).
 - The label attaches to the entire "[" ... "]" block as a whole (not to the first node inside).
 - A "## ..." line not followed by a "[" block is a syntax error (strict) or ignored (weak).
-```
+``` 

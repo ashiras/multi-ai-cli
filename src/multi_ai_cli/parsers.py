@@ -1,11 +1,13 @@
 """
 Parsing utilities for Multi-AI CLI.
 
-Handles CLI argument parsing, prompt building, and @sequence step parsing.
+Handles CLI argument parsing, prompt building, reference file loading,
+and @sequence step parsing.
 """
 
 import re
 import shlex
+from configparser import ConfigParser
 from dataclasses import dataclass, field
 
 from .adapters.shell.models import ParsedShInput  # noqa: F401 — re-export
@@ -15,13 +17,16 @@ from .utils import secure_resolve_path
 WRITE_MODE_RAW = "raw"
 WRITE_MODE_CODE = "code"
 
-# Non-agent commands (adapters, utilities)
+# Non-agent commands (adapters, utilities).
+# This is the single source of truth for built-in command names.
+# Both interactive mode and filter mode should reference this set.
 BUILTIN_COMMANDS = {
     "sh",
     "scrub",
     "flush",
     "efficient",
     "pause",
+    "sequence",
     "figma.pull",
     "figma.push",
     "github.repo",
@@ -135,6 +140,7 @@ def _parse_write_flag(token: str) -> tuple[str | None, bool, str | None]:
         return None, False, None
 
     m = _WRITE_FLAG_PATTERN.match(token)
+
     if not m:
         return (
             None,
@@ -330,6 +336,48 @@ def parse_cli_input(parts: list[str]) -> ParsedInput | None:
     return parsed
 
 
+def load_reference_sections(
+    read_files: list[str],
+    config: ConfigParser | None = None,
+) -> list[str]:
+    """
+    Loads reference file contents and formats them as labeled sections.
+
+    This is a shared helper used by both build_ai_prompt() (interactive mode)
+    and build_filter_prompt() (filter mode).
+
+    Args:
+        read_files: List of filenames to load.
+        config: ConfigParser instance for path resolution.
+            Falls back to the global config if None.
+
+    Returns:
+        List of formatted file content sections.
+
+    Raises:
+        RuntimeError: If reading any file fails.
+    """
+    if config is None:
+        from .config import config as default_config
+
+        config = default_config
+
+    sections: list[str] = []
+    for filename in read_files:
+        try:
+            filepath = secure_resolve_path(filename, "data", config=config)
+            with open(filepath, encoding="utf-8") as f:
+                file_content = f.read()
+            sections.append(
+                f"--- [File: {filename}] ---\n"
+                f"{file_content}\n"
+                f"--- [End of File: {filename}] ---"
+            )
+        except Exception as e:
+            raise RuntimeError(f"Error reading reference file '{filename}': {e}")
+    return sections
+
+
 def build_ai_prompt(parsed: ParsedInput, editor_content: str | None = None) -> str:
     """
     Assembles the final prompt from different sources in fixed priority order.
@@ -340,6 +388,8 @@ def build_ai_prompt(parsed: ParsedInput, editor_content: str | None = None) -> s
       2. message (-m flags)
       3. editor_content (from -e/--edit)
       4. contents of files from -r flags.
+
+    Uses the shared load_reference_sections() helper for file loading.
 
     Args:
         parsed (ParsedInput): The parsed input object containing relevant data.
@@ -363,24 +413,7 @@ def build_ai_prompt(parsed: ParsedInput, editor_content: str | None = None) -> s
         sections.append(editor_content.strip())
 
     if parsed.read_files:
-        file_sections = []
-        for filename in parsed.read_files:
-            try:
-                filepath = secure_resolve_path(
-                    filename,
-                    "data",
-                    config=config,
-                )
-                with open(filepath, encoding="utf-8") as f:
-                    file_content = f.read()
-                file_sections.append(
-                    f"--- [File: {filename}] ---\n"
-                    f"{file_content}\n"
-                    f"--- [End of File: {filename}] ---"
-                )
-            except Exception as e:
-                raise RuntimeError(f"Error reading input file '{filename}': {e}")
-
+        file_sections = load_reference_sections(parsed.read_files, config=config)
         if file_sections:
             sections.append("\n\n".join(file_sections))
 

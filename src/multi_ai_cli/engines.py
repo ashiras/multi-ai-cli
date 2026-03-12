@@ -43,6 +43,11 @@ class AIEngine(ABC):
         self.history: list[dict[str, str]] = []
         # max_turns is overwritten in _build_agent_engines() in config.py
         self.max_turns = DEFAULT_MAX_HISTORY_TURNS
+        # Temporary execution-scoped flag to suppress interactive
+        # progress/status output to stdout (e.g. auto-continue messages).
+        # Set to True only during filter mode execution.
+        # This may later be replaced by per-call execution options.
+        self.filter_mode = False
 
     def _trim_history(self) -> None:
         """Keeps conversation history within the allowed turn limit."""
@@ -159,6 +164,8 @@ class GeminiEngine(AIEngine):
         Calls the Gemini model with a user prompt, managing conversation
         history and implementing auto-continuation for long responses.
 
+        Auto-continue progress output is suppressed when filter_mode is True.
+
         Args:
             prompt (str): The user input to send to the Gemini model.
 
@@ -206,12 +213,14 @@ class GeminiEngine(AIEngine):
                 full_answer += answer_chunk
 
                 if self._hit_output_limit(response, answer_chunk):
-                    with _console_lock:
-                        print(
-                            f"[*] {self.name} continuing ({round_idx}/{max_rounds})...",
-                            end="\r",
-                            flush=True,
-                        )
+                    # Suppress progress output when filter_mode is active
+                    if not self.filter_mode:
+                        with _console_lock:
+                            print(
+                                f"[*] {self.name} continuing ({round_idx}/{max_rounds})...",
+                                end="\r",
+                                flush=True,
+                            )
 
                     contents.append(
                         types.Content(
@@ -309,6 +318,8 @@ class OpenAIEngine(AIEngine):
         Calls the OpenAI engine with a user prompt, managing conversation
         history and implementing auto-continuation for long responses.
 
+        Auto-continue progress output is suppressed when filter_mode is True.
+
         Args:
             prompt (str): The user input to send to the OpenAI model.
 
@@ -343,12 +354,14 @@ class OpenAIEngine(AIEngine):
                 full_answer += answer_chunk
 
                 if finish_reason == "length":
-                    with _console_lock:
-                        print(
-                            f"[*] {self.name} is continuing ({round_idx}/{max_rounds})...",
-                            end="\r",
-                            flush=True,
-                        )
+                    # Suppress progress output when filter_mode is active
+                    if not self.filter_mode:
+                        with _console_lock:
+                            print(
+                                f"[*] {self.name} is continuing ({round_idx}/{max_rounds})...",
+                                end="\r",
+                                flush=True,
+                            )
 
                     messages.append({"role": "assistant", "content": answer_chunk})
                     tail = _tail_of(full_answer, tail_chars)
@@ -400,6 +413,8 @@ class ClaudeEngine(AIEngine):
         Calls the Claude model with a user prompt, managing conversation
         history and implementing auto-continuation for long responses.
 
+        Auto-continue progress output is suppressed when filter_mode is True.
+
         Args:
             prompt (str): The user input to send to the Claude model.
 
@@ -439,12 +454,14 @@ class ClaudeEngine(AIEngine):
                 full_answer += answer_chunk
 
                 if stop_reason == "max_tokens":
-                    with _console_lock:
-                        print(
-                            f"[*] {self.name} is continuing ({round_idx}/{max_rounds})...",
-                            end="\r",
-                            flush=True,
-                        )
+                    # Suppress progress output when filter_mode is active
+                    if not self.filter_mode:
+                        with _console_lock:
+                            print(
+                                f"[*] {self.name} is continuing ({round_idx}/{max_rounds})...",
+                                end="\r",
+                                flush=True,
+                            )
 
                     messages.append({"role": "assistant", "content": answer_chunk})
                     tail = _tail_of(full_answer, tail_chars)
