@@ -79,6 +79,39 @@ def startup() -> None:
     initialize_engines()
 
 
+def setup_readline() -> None:
+    """
+    Initialize readline support for the interactive CLI.
+
+    This enables basic line editing and command history navigation,
+    making arrow-key input more convenient in REPL-style usage.
+    If available, it also configures Tab completion behavior and
+    loads/saves persistent history across sessions.
+
+    The setup is optional and safely skipped on environments where
+    readline is not available.
+    """
+    try:
+        import atexit
+        import os
+        import readline
+
+        histfile = os.path.expanduser("~/.multi_ai_history")
+
+        if os.path.exists(histfile):
+            readline.read_history_file(histfile)
+
+        atexit.register(readline.write_history_file, histfile)
+
+        if "libedit" in getattr(readline, "__doc__", ""):
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+
+    except ImportError:
+        pass
+
+
 def run_interactive_mode() -> int:
     """
     Runs the interactive REPL mode.
@@ -162,6 +195,7 @@ def main() -> None:
     - sys.stdin.isatty() == False -> Filter mode (stdin -> AI -> stdout)
     """
     startup()
+    setup_readline()
 
     if sys.stdin.isatty():
         code = run_interactive_mode()

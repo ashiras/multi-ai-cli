@@ -8,4 +8,6 @@
 ->
 @claude -m "issue_24_specification.2.txt に従って対象ファイルのコードを修正して下さい。コード中のコメントは英文とする。" -r issue_24_specification.2.txt -r multi_ai_cli/config.py -r multi_ai_cli/engines.py -r multi_ai_cli/handlers.py -r multi_ai_cli/main.py -r multi_ai_cli/parsers.py  -r multi_ai_cli/utils.py -w issue_24_code.py
 ->
+@pause
+->
 @claude -m "issue_24_specification.3.txt に従って修正したコードをもう一度見直してください。コード中のコメントは英文とする。" -r issue_24_specification.3.txt -r issue_24_code.py -w issue_24_code.2.py
