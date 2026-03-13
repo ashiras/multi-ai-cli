@@ -291,6 +291,15 @@ wheels = [
 ]
 
 [[package]]
+name = "freesimplegui"
+version = "5.2.0.post1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/41/8a56f3d4a3760fec6b1f63ff48fa57620f0552eb5f0986fb4aa35f4119f1/freesimplegui-5.2.0.post1.tar.gz", hash = "sha256:e58a0e6758e9a9e87152256911f94fcc3998356d1309973a9f4d9df2dc55f98a", size = 718668, upload-time = "2025-03-17T17:50:24.402Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/b4/ce89b4b40d1d2f726583b4d00b99589ba37580012890a8bc4b88d1d2a239/freesimplegui-5.2.0.post1-py3-none-any.whl", hash = "sha256:3d61eb519324503232f86b2f1bd7f5c6813ce225f6e189d0fd737ddb036af4d5", size = 733618, upload-time = "2025-03-17T17:50:22.559Z" },
+]
+
+[[package]]
 name = "gnureadline"
 version = "8.3.3"
 source = { registry = "https://pypi.org/simple" }
@@ -602,6 +611,11 @@ dependencies = [
     { name = "types-requests" },
 ]
 
+[package.optional-dependencies]
+gui = [
+    { name = "freesimplegui" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
@@ -615,6 +629,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.84.0" },
     { name = "charset-normalizer", specifier = ">=3.4.5" },
+    { name = "freesimplegui", marker = "extra == 'gui'" },
     { name = "gnureadline", specifier = ">=8.3.3" },
     { name = "google-genai", specifier = ">=1.66.0" },
     { name = "openai", specifier = ">=2.26.0" },
@@ -622,6 +637,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.5" },
     { name = "types-requests", specifier = ">=2.32.4.20260107" },
 ]
+provides-extras = ["gui"]
 
 [package.metadata.requires-dev]
 dev = [

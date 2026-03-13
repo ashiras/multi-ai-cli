@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.8.0,<0.9.0"]
+requires = ["uv_build>=0.10.9,<0.11.0"]
 build-backend = "uv_build"
 
 [project]
@@ -18,10 +18,17 @@ dependencies = [
     "requests>=2.32.5",
     "types-requests>=2.32.4.20260107",
 ]
-packages = [{ include = "multi_ai_cli", from = "src" }]
+
+[project.optional-dependencies]
+gui = ["FreeSimpleGUI"]
 
 [project.scripts]
 multi-ai = "multi_ai_cli.main:main"
+# uv run python -m multi_ai_gui.main
+# multi-ai-gui = "multi_ai_gui.main:main"
+
+[tool.uv.build-backend]
+module-name = ["multi_ai_cli", "multi_ai_gui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
