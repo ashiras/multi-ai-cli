@@ -15,6 +15,91 @@ from .config import agent_engines, is_log_enabled, logger, setup_config, setup_l
 from .handlers import dispatch_command
 from .utils import print_welcome_banner
 
+# Valid values for the --mode flag
+_VALID_MODES = {"repl", "filter"}
+
+
+def _extract_mode_arg(argv: list[str]) -> tuple[str | None, list[str]]:
+    remaining: list[str] = []
+    mode: str | None = None
+    i = 0
+
+    while i < len(argv):
+        arg = argv[i]
+
+        if arg.startswith("--mode="):
+            if mode is not None:
+                print("[!] Error: --mode specified more than once.", file=sys.stderr)
+                sys.exit(2)
+
+            value = arg[len("--mode=") :].strip().lower()
+            if not value:
+                print(
+                    f"[!] Error: --mode requires a value. Valid: {', '.join(sorted(_VALID_MODES))}",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            if value not in _VALID_MODES:
+                print(
+                    f"[!] Error: invalid mode '{value}'. Valid: {', '.join(sorted(_VALID_MODES))}",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+            mode = value
+            i += 1
+            continue
+
+        if arg == "--mode":
+            if mode is not None:
+                print("[!] Error: --mode specified more than once.", file=sys.stderr)
+                sys.exit(2)
+
+            if i + 1 >= len(argv):
+                print(
+                    f"[!] Error: --mode requires a value. Valid: {', '.join(sorted(_VALID_MODES))}",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+            value = argv[i + 1].strip().lower()
+            if value not in _VALID_MODES:
+                print(
+                    f"[!] Error: invalid mode '{value}'. Valid: {', '.join(sorted(_VALID_MODES))}",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+            mode = value
+            i += 2
+            continue
+
+        remaining.append(arg)
+        i += 1
+
+    return mode, remaining
+
+
+def _run_legacy_auto_detection(argv: list[str]) -> int:
+    """
+    Selects execution mode using the legacy stdin TTY detection heuristic.
+
+    When stdin is a TTY, runs the interactive REPL. Otherwise, runs
+    filter mode with the provided arguments.
+
+    Args:
+        argv: The argument list to pass to filter mode (unused for REPL).
+
+    Returns:
+        Exit code from the selected mode.
+    """
+    if sys.stdin.isatty():
+        return run_interactive_mode()
+
+    from .filter_mode import run_filter_mode
+
+    return run_filter_mode(argv)
+
 
 def _read_interactive_input() -> str | None:
     r"""
@@ -188,21 +273,29 @@ def main() -> None:
     """
     Main entry point for the Multi-AI CLI application.
 
-    Performs shared startup, then dispatches to either interactive REPL
-    mode or filter mode based on whether stdin is a TTY.
+    Performs shared startup, then dispatches to the appropriate execution
+    mode based on the optional ``--mode`` flag:
 
-    - sys.stdin.isatty() == True  -> Interactive REPL mode
-    - sys.stdin.isatty() == False -> Filter mode (stdin -> AI -> stdout)
+    - ``--mode repl``   -> Always starts interactive REPL, regardless of TTY
+    - ``--mode filter`` -> Always runs single-shot filter mode
+    - (omitted)         -> Legacy auto-detection via ``sys.stdin.isatty()``
+
+    Explicit ``--mode`` selection overrides TTY-based auto-detection.
     """
+    raw_argv = sys.argv[1:]
+    mode, remaining_argv = _extract_mode_arg(raw_argv)
+
     startup()
     setup_readline()
 
-    if sys.stdin.isatty():
+    if mode == "repl":
         code = run_interactive_mode()
-    else:
+    elif mode == "filter":
         from .filter_mode import run_filter_mode
 
-        code = run_filter_mode(sys.argv[1:])
+        code = run_filter_mode(remaining_argv)
+    else:
+        code = _run_legacy_auto_detection(raw_argv)
 
     sys.exit(code)
 
