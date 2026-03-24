@@ -3,4 +3,4 @@
 uv run pyinstaller --onefile \
                    --name multi-ai \
                    --paths src \
-                   src/run.py
+                   src/run_cli.py
