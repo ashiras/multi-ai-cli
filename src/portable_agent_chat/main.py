@@ -1,3 +1,5 @@
+"""CLI entry point for the portable chat application."""
+
 import argparse
 
 from prompt_toolkit import PromptSession
@@ -9,6 +11,7 @@ from portable_agent_chat.commands import CommandType, parse_command
 
 
 def main() -> None:
+    """Run the interactive portable chat command-line interface."""
     parser = argparse.ArgumentParser(
         prog="portable-chat",
         description="Minimal conversation CLI for Portable Agent / multi-ai",
@@ -22,7 +25,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Load multi-ai configuration and register Agent definitions.
+    # Load multi-ai configuration and register agent definitions.
     startup()
 
     try:

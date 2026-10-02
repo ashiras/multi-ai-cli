@@ -1,12 +1,14 @@
+"""Chat session management for prompt execution and file integration."""
+
+import multi_ai_cli.config as multi_ai_config
 from multi_ai_cli.agent_factory import AgentFactory
 from multi_ai_cli.registry import agent_registry
 from multi_ai_cli.session import AgentSession
-import multi_ai_cli.config as multi_ai_config
-
-from portable_agent_chat.files import read_file, write_new_file, ensure_new_file
+from portable_agent_chat.files import ensure_new_file, read_file, write_new_file
 
 
 def create_agent_session() -> AgentSession:
+    """Create and return a configured agent session."""
     factory = AgentFactory()
 
     return AgentSession(
@@ -17,7 +19,17 @@ def create_agent_session() -> AgentSession:
 
 
 class ChatSession:
-    def __init__(self, agent_key: str):
+    """Manage a single interactive chat session with one agent."""
+
+    def __init__(self, agent_key: str) -> None:
+        """Initialize a chat session for the given agent.
+
+        Args:
+            agent_key: Registered agent name to use.
+
+        Raises:
+            ValueError: If the agent name is unknown.
+        """
         self.agent_key = agent_key
 
         self.agent_session = create_agent_session()
@@ -32,11 +44,33 @@ class ChatSession:
         self.pending_reads: list[str] = []
 
     def add_pending_read(self, path: str) -> None:
-        # :r 実行時点で存在・読み込み可能性を確認する
+        """Queue a file to be included in the next prompt.
+
+        The file is validated immediately when the command is issued.
+
+        Args:
+            path: Path to the file to include in the next request.
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+            ValueError: If the path is not a regular file.
+            OSError: If the file cannot be read.
+        """
         read_file(path)
         self.pending_reads.append(path)
 
     def send(self, prompt: str) -> str:
+        """Send a prompt to the current agent and return the response.
+
+        Any queued file reads are embedded into the effective prompt before
+        sending. Queued reads are always cleared after the request attempt.
+
+        Args:
+            prompt: User prompt text.
+
+        Returns:
+            The assistant response text.
+        """
         effective_prompt = prompt
 
         if self.pending_reads:
@@ -46,20 +80,15 @@ class ChatSession:
                 content = read_file(path)
 
                 contexts.append(
-                    f"--- file: {path} ---\n"
-                    f"{content}\n"
-                    f"--- end file: {path} ---"
+                    f"--- file: {path} ---\n{content}\n--- end file: {path} ---"
                 )
 
-            effective_prompt = (
-                "\n\n".join(contexts)
-                + "\n\n"
-                + prompt
-            )
+            effective_prompt = "\n\n".join(contexts) + "\n\n" + prompt
 
         try:
             response = self.engine.call(effective_prompt)
         finally:
+            # Clear queued reads even if the model call fails.
             self.pending_reads = []
 
         self.last_response = response
@@ -71,11 +100,31 @@ class ChatSession:
         return response
 
     def write_last_response(self, path: str) -> int:
+        """Write the most recent assistant response to a new file.
+
+        Args:
+            path: Destination file path.
+
+        Returns:
+            The number of bytes written.
+
+        Raises:
+            ValueError: If no assistant response is available yet.
+            FileExistsError: If the destination file already exists.
+        """
         if self.last_response is None:
             raise ValueError("no assistant response to write")
 
         return write_new_file(path, self.last_response)
-    
+
     def set_pending_output(self, path: str) -> None:
+        """Reserve a file path for writing the next assistant response.
+
+        Args:
+            path: Destination file path for the next response.
+
+        Raises:
+            FileExistsError: If the destination path already exists.
+        """
         ensure_new_file(path)
         self.pending_output = path

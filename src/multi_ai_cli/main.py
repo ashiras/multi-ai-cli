@@ -13,14 +13,13 @@ immutable AgentDefinitions from the registry.
 import os
 import shlex
 import sys
+from typing import TYPE_CHECKING
 
 from . import __version__
 from .config import is_log_enabled, legacy_sdk_map, logger, setup_config, setup_logger
 from .handlers import dispatch_command
 from .registry import agent_registry
 from .utils import print_welcome_banner
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .session import AgentSession
