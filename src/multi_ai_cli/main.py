@@ -297,7 +297,9 @@ def run_interactive_mode() -> int:
                 if not success and len(command_chain) > 1:
                     print("[!] Pipeline stopped due to an error in the current step.")
                     break
-
+        except EOFError:
+            print()
+            break
         except KeyboardInterrupt:
             print("\n[!] Session interrupted. Type 'exit' to quit.")
         except Exception as e:
