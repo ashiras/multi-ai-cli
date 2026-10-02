@@ -102,6 +102,8 @@ def main() -> None:
             continue
 
         print()
+        print(f"── @{args.agent} " + "─" * 24)
+        print()
         print(response)
         print()
 
