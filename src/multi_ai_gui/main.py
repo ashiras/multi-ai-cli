@@ -16,8 +16,6 @@ import subprocess
 import threading
 from typing import IO
 
-import FreeSimpleGUI as sg  # type: ignore[import-untyped]
-
 # =================================================================
 # 1. Paths and directory settings
 # =================================================================

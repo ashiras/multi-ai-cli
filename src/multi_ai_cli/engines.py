@@ -3,6 +3,11 @@ AI engine implementations for Multi-AI CLI.
 
 Contains base abstract class and concrete engines for Gemini, GPT,
 Claude, Grok, and local models.
+
+Each AIEngine instance represents an independent runtime unit with its
+own mutable state (history, system_prompt, filter_mode). Instances are
+created by AgentFactory and should never be shared across sessions or
+concurrent tasks.
 """
 
 from abc import ABC, abstractmethod
@@ -27,7 +32,13 @@ class AIError(Exception):
 
 
 class AIEngine(ABC):
-    """Base abstract class for all AI model implementations."""
+    """
+    Base abstract class for all AI model implementations.
+
+    Each instance maintains independent mutable state including
+    conversation history, system prompt, and runtime flags.
+    Instances must not be shared across sessions or concurrent tasks.
+    """
 
     def __init__(self, name: str, model_name: str) -> None:
         """
@@ -41,7 +52,7 @@ class AIEngine(ABC):
         self.model_name = model_name
         self.system_prompt = ""
         self.history: list[dict[str, str]] = []
-        # max_turns is overwritten in _build_agent_engines() in config.py
+        # max_turns is overwritten by AgentFactory during creation
         self.max_turns = DEFAULT_MAX_HISTORY_TURNS
         # Temporary execution-scoped flag to suppress interactive
         # progress/status output to stdout (e.g. auto-continue messages).
@@ -113,7 +124,7 @@ class GeminiEngine(AIEngine):
         """
         super().__init__(name, model_name)
         self.client = client
-        # max_output_tokens is externally configured from _build_agent_engines()
+        # max_output_tokens is externally configured by AgentFactory
         self.max_output_tokens = 8192
 
     def get_client(self) -> genai.Client:
@@ -273,7 +284,7 @@ class OpenAIEngine(AIEngine):
         """
         super().__init__(name, model_name)
         self.client = client
-        # max_tokens is externally configured from _build_agent_engines()
+        # max_tokens is externally configured by AgentFactory
         self.max_tokens = 4096
 
     def get_client(self) -> OpenAI:
@@ -396,7 +407,7 @@ class ClaudeEngine(AIEngine):
         """
         super().__init__(name, model_name)
         self.client = client
-        # max_tokens is externally configured from _build_agent_engines()
+        # max_tokens is externally configured by AgentFactory
         self.max_tokens = 8192
 
     def get_client(self) -> Anthropic:

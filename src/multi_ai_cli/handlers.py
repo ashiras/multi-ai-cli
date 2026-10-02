@@ -2,18 +2,20 @@
 Command handlers for Multi-AI CLI.
 
 Processes user commands (@agent, @sh, @sequence, @scrub, etc.) and
-dispatches them.
+dispatches them. All agent interactions go through AgentSession to
+ensure proper instance isolation.
 """
 
 import os
 import shlex
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import TYPE_CHECKING
 
 from .adapters.shell import ShellAdapter
 from .adapters.shell.adapter import ShellCommandBuildError
 from .adapters.shell.models import ShellResult
-from .config import agent_engines, config, logger
+from .config import config, logger
 from .parsers import (
     ParsedInput,
     ParsedShInput,
@@ -30,6 +32,9 @@ from .utils import (
     safe_print,
     secure_resolve_path,
 )
+
+if TYPE_CHECKING:
+    from .session import AgentSession
 
 WRITE_MODE_RAW = "raw"
 WRITE_MODE_CODE = "code"
@@ -75,12 +80,13 @@ def handle_pause(parts: list[str]) -> bool:
         print("[!] Invalid input. Press Enter to continue, or type 'q' to abort.")
 
 
-def dispatch_command(parts: list[str]) -> bool:
+def dispatch_command(parts: list[str], session: "AgentSession") -> bool:
     """
     Routes the parsed command tokens to the appropriate handler.
 
     Args:
         parts (list[str]): List of command parts to be dispatched.
+        session (AgentSession): The current agent session for instance management.
 
     Returns:
         bool: True if command succeeded, False otherwise.
@@ -91,18 +97,18 @@ def dispatch_command(parts: list[str]) -> bool:
     cmd = parts[0].lower()
 
     if cmd in ["@scrub", "@flush"]:
-        handle_scrub(parts)
+        handle_scrub(parts, session)
         return True
 
     if cmd == "@pause":
         return handle_pause(parts)
 
     if cmd == "@efficient":
-        handle_efficient(parts)
+        handle_efficient(parts, session)
         return True
 
     if cmd == "@sequence":
-        handle_sequence(parts)
+        handle_sequence(parts, session)
         return True
 
     if cmd == "@sh":
@@ -146,50 +152,67 @@ def dispatch_command(parts: list[str]) -> bool:
 
     # Resolve by agent key
     target_key = cmd.replace("@", "").lower()
-    if target_key in agent_engines:
-        return handle_ai_interaction(parts)
+    if session.is_valid_agent(target_key):
+        return handle_ai_interaction(parts, session)
 
     safe_print(f"[!] Unknown command: '{cmd}'")
+    available_agents = session.agent_keys()
     safe_print(
-        f"    Available: {', '.join('@' + k for k in sorted(agent_engines.keys()))}, "
+        f"    Available: {', '.join('@' + k for k in sorted(available_agents))}, "
         f"@pause, @efficient, @scrub, @sequence, @sh, @figma.pull, @figma.push, "
         f"@github.repo, @github.tree, @github.file, @github.issue, @github.issues, exit"
     )
     return False
 
 
-def handle_scrub(parts: list[str]) -> None:
+def handle_scrub(parts: list[str], session: "AgentSession") -> None:
     """
     Handles @scrub / @flush command to clear agent history.
 
+    Only affects agents that have been instantiated in the current session.
+
     Args:
         parts (list[str]): List of command parts.
+        session (AgentSession): The current agent session.
     """
     target = parts[1].lower() if len(parts) > 1 else "all"
-    valid_targets = set(agent_engines.keys()) | {"all"}
+    valid_targets = set(session.agent_keys()) | {"all"}
 
     if target not in valid_targets:
         print(f"[!] Invalid target '{target}'. Valid: {', '.join(valid_targets)}")
         return
 
-    for agent_key, engine in agent_engines.items():
-        if target in ["all", agent_key]:
-            engine.scrub()
+    if target == "all":
+        scrubbed = session.scrub()
+        for key in scrubbed:
+            engine = session.get_agent(key)
             print(f"[*] {engine.name} memory scrubbed.")
+    else:
+        if session.has_agent(target):
+            session.scrub(target)
+            engine = session.get_agent(target)
+            print(f"[*] {engine.name} memory scrubbed.")
+        else:
+            print(
+                f"[*] @{target} has not been used in this session yet. Nothing to scrub."
+            )
 
 
-def handle_efficient(parts: list[str]) -> None:
+def handle_efficient(parts: list[str], session: "AgentSession") -> None:
     """
     Handles @efficient command to load persona files.
 
     Args:
         parts (list[str]): List of command parts.
+        session (AgentSession): The current agent session.
     """
     if len(parts) < 2:
         print("[!] Usage: @efficient [target/all] <filename.txt>")
         return
 
-    if parts[1].lower() in (list(agent_engines.keys()) + ["all"]):
+    all_agent_keys = session.agent_keys()
+
+    if parts[1].lower() in (all_agent_keys + ["all"]):
         target = parts[1].lower()
         filename = parts[2] if len(parts) > 2 else None
     else:
@@ -205,15 +228,20 @@ def handle_efficient(parts: list[str]) -> None:
         with open(filepath, encoding="utf-8") as f:
             content = f.read().strip()
 
-        for agent_key, engine in agent_engines.items():
-            if target in ["all", agent_key]:
+        if target == "all":
+            for agent_key in all_agent_keys:
+                engine = session.get_agent(agent_key)
                 engine.load_persona(content, filename)
                 print(f"[*] {engine.name} persona loaded: '{filename}'.")
+        else:
+            engine = session.get_agent(target)
+            engine.load_persona(content, filename)
+            print(f"[*] {engine.name} persona loaded: '{filename}'.")
     except Exception as e:
         print(f"[!] Persona loading failed: {e}")
 
 
-def handle_ai_interaction(parts: list[str]) -> bool:
+def handle_ai_interaction(parts: list[str], session: "AgentSession") -> bool:
     """
     Handles interaction with a specific AI agent (@gpt.doc "prompt" ...).
 
@@ -224,12 +252,13 @@ def handle_ai_interaction(parts: list[str]) -> bool:
 
     Args:
         parts (list[str]): List of command parts to interact with AI.
+        session (AgentSession): The current agent session.
 
     Returns:
         bool: True if interaction succeeded, False otherwise.
     """
     target_key = parts[0].lower().replace("@", "")
-    engine = agent_engines.get(target_key)
+    engine = session.get_agent(target_key)
 
     if not engine:
         safe_print(f"[!] Agent '@{target_key}' not found.")
@@ -426,13 +455,14 @@ def handle_sh(parts: list[str]) -> bool:
     return exit_code == 0
 
 
-def handle_sequence(parts: list[str]) -> None:
+def handle_sequence(parts: list[str], session: "AgentSession") -> None:
     """
     Handles @sequence command (requires -e/--edit flag).
 
     Args:
         parts (list[str]): List of command parts, expecting the ``-e`` or
             ``--edit`` flag.
+        session (AgentSession): The current agent session.
     """
     has_edit = any(t in ("-e", "--edit") for t in parts[1:])
 
@@ -478,25 +508,6 @@ def handle_sequence(parts: list[str]) -> None:
                     )
                     return
 
-            # Validate duplicate agents within the parallel block
-            from .registry import validate_no_duplicate_agents_in_parallel
-
-            parallel_agent_keys = []
-            for task in step_tasks:
-                cmd_key = task[0].lower().replace("@", "")
-                if cmd_key in agent_engines:
-                    parallel_agent_keys.append(cmd_key)
-
-            try:
-                validate_no_duplicate_agents_in_parallel(parallel_agent_keys)
-            except ValueError as e:
-                print(f"[!] Step {step_idx}/{total_steps}: {e}")
-                print(
-                    f"[!] Cascade Stop: {total_steps - step_idx} remaining step(s) skipped."
-                )
-                logger.error(f"@sequence validation error at step {step_idx}: {e}")
-                return
-
             print(
                 f"[*] Executing Step {step_idx}/{total_steps} [PARALLEL: {len(step_tasks)} tasks]..."
             )
@@ -505,10 +516,12 @@ def handle_sequence(parts: list[str]) -> None:
 
             results = {}
             with ThreadPoolExecutor(max_workers=len(step_tasks)) as executor:
-                future_to_task = {
-                    executor.submit(dispatch_command, task): t_idx
-                    for t_idx, task in enumerate(step_tasks, 1)
-                }
+                future_to_task = {}
+                for t_idx, task in enumerate(step_tasks, 1):
+                    # Each parallel task gets its own independent child session
+                    child_session = session.create_child_session()
+                    future = executor.submit(dispatch_command, task, child_session)
+                    future_to_task[future] = t_idx
 
                 for future in as_completed(future_to_task):
                     t_idx = future_to_task[future]
@@ -539,7 +552,7 @@ def handle_sequence(parts: list[str]) -> None:
             print(f"[*] Executing Step {step_idx}/{total_steps}...")
             print(f"    Command: {shlex.join(tokens)}")
 
-            success = dispatch_command(tokens)
+            success = dispatch_command(tokens, session)
             if not success:
                 print(f"[!] Step {step_idx}/{total_steps} failed. Halting sequence.")
                 print(

@@ -4,6 +4,10 @@ Configuration and logging management for Multi-AI CLI.
 This module handles loading the INI configuration, setting up the global
 logger with rotation support, and providing utilities to retrieve
 API keys from environment variables or the config file.
+
+After the AgentDefinition/AgentInstance separation, this module no longer
+creates or holds AIEngine instances. Engine instantiation is handled by
+AgentFactory and AgentSession.
 """
 
 import configparser
@@ -11,16 +15,18 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    pass
+from typing import Any
 
 config = configparser.ConfigParser()
 logger = logging.getLogger("MultiAI")
 is_log_enabled = False
 
-agent_engines: dict[str, Any] = {}
+# Legacy SDK type mapping for old-format INI files.
+# Populated by _load_legacy_config() and consumed by AgentSession.
+legacy_sdk_map: dict[str, str] | None = None
+
+# Flag indicating whether the loaded config is new format.
+is_new_config_format: bool = False
 
 DEFAULT_LOG_MAX_BYTES = 10485760
 DEFAULT_LOG_BACKUP_COUNT = 5
@@ -269,6 +275,8 @@ def _load_legacy_config() -> None:
     Migration compatibility layer that internally maps old-format INI files
     (without AGENT sections) into the new AgentDefinition structure.
 
+    Also populates the global legacy_sdk_map for use by AgentSession.
+
     Mapping rules:
     - [MODELS] gemini_model → AGENT gemini (adapter=openai-compatible, via proxy)
     - [MODELS] gpt_model    → AGENT gpt
@@ -276,6 +284,8 @@ def _load_legacy_config() -> None:
     - [MODELS] grok_model   → AGENT grok
     - [LOCAL] → AGENT local
     """
+    global legacy_sdk_map
+
     from .registry import (
         AgentDefinition,
         agent_registry,
@@ -298,9 +308,12 @@ def _load_legacy_config() -> None:
             "MODELS", "auto_continue_tail_chars", fallback=1200
         )
 
+    # Initialize legacy SDK mapping
+    legacy_sdk_map = {}
+
     # ── Legacy provider mapping ──
     # Each tuple: (old MODELS key, default model, agent_key, server, api_key_ref,
-    #              max_tokens_key, default_max_tokens)
+    #              max_tokens_key, default_max_tokens, sdk_type)
     legacy_providers = [
         (
             "gpt_model",
@@ -310,6 +323,7 @@ def _load_legacy_config() -> None:
             "openai_api_key",
             "openai_max_tokens",
             4096,
+            "openai",
         ),
         (
             "claude_model",
@@ -319,6 +333,7 @@ def _load_legacy_config() -> None:
             "anthropic_api_key",
             "claude_max_tokens",
             8192,
+            "anthropic",
         ),
         (
             "gemini_model",
@@ -328,6 +343,7 @@ def _load_legacy_config() -> None:
             "gemini_api_key",
             "gemini_max_output_tokens",
             8192,
+            "gemini",
         ),
         (
             "grok_model",
@@ -337,6 +353,7 @@ def _load_legacy_config() -> None:
             "grok_api_key",
             "grok_max_tokens",
             4096,
+            "openai",
         ),
     ]
 
@@ -348,6 +365,7 @@ def _load_legacy_config() -> None:
         api_key_ref,
         max_tokens_key,
         default_max_tokens,
+        sdk_type,
     ) in legacy_providers:
         model_str = config.get("MODELS", model_key, fallback=default_model)
         max_tokens = config.getint(
@@ -363,6 +381,7 @@ def _load_legacy_config() -> None:
             max_output_tokens=max_tokens,
         )
         agent_registry.register(agent_def)
+        legacy_sdk_map[agent_key] = sdk_type
 
     # ── [LOCAL] compatibility ──
     local_base = config.get("LOCAL", "base_url", fallback="http://localhost:11434/v1")
@@ -378,196 +397,35 @@ def _load_legacy_config() -> None:
             max_output_tokens=local_max,
         )
     )
-
-
-def _build_agent_engines() -> None:
-    """
-    Generate SDK clients from all agent definitions and
-    register AIEngine instances in agent_engines.
-
-    Dispatches based on agent_def.adapter, not agent name.
-    """
-    global agent_engines
-
-    from .engines import OpenAIEngine
-    from .registry import (
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        agent_registry,
-        runtime_settings,
-    )
-
-    # SDK client cache (reused for identical credentials + base_url)
-    _client_cache: dict[str, Any] = {}
-
-    def _get_or_create_openai_client(agent_def: Any) -> Any:
-        """Create/cache an OpenAI SDK client based on agent_def."""
-        resolved_key = _resolve_api_key_for_agent(agent_def)
-        api_key = resolved_key or "dummy"
-
-        cache_key = f"openai-compatible:{agent_def.server}:{api_key}"
-        if cache_key in _client_cache:
-            return _client_cache[cache_key]
-
-        from openai import OpenAI
-
-        client = OpenAI(
-            api_key=api_key,
-            base_url=agent_def.server,
-        )
-
-        _client_cache[cache_key] = client
-        return client
-
-    agent_engines.clear()
-
-    for agent_key, agent_def in agent_registry.all_agents().items():
-        ai_engine: Any
-
-        if agent_def.adapter == "openai-compatible":
-            client = _get_or_create_openai_client(agent_def)
-
-            ai_engine = OpenAIEngine(
-                name=agent_def.display_label,
-                model_name=agent_def.engine,
-                client=client,
-            )
-        else:
-            raise ValueError(
-                f"Agent '{agent_key}': unsupported adapter '{agent_def.adapter}'."
-            )
-
-        # Apply max_output_tokens
-        effective_max_tokens = (
-            agent_def.max_output_tokens
-            if agent_def.max_output_tokens is not None
-            else DEFAULT_MAX_OUTPUT_TOKENS
-        )
-        if hasattr(ai_engine, "max_output_tokens"):
-            ai_engine.max_output_tokens = effective_max_tokens
-        if hasattr(ai_engine, "max_tokens"):
-            ai_engine.max_tokens = effective_max_tokens
-
-        # Apply runtime settings
-        ai_engine.max_turns = runtime_settings.max_history_turns
-
-        agent_engines[agent_key] = ai_engine
-
-
-def _build_legacy_agent_engines() -> None:
-    """
-    Generate SDK clients for legacy config format.
-
-    Legacy agents may use Gemini, Anthropic, or OpenAI SDKs based on
-    their agent_key, since the legacy format implies specific providers.
-    """
-    global agent_engines
-
-    from .engines import ClaudeEngine, GeminiEngine, OpenAIEngine
-    from .registry import (
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        agent_registry,
-        runtime_settings,
-    )
-
-    _client_cache: dict[str, Any] = {}
-
-    agent_engines.clear()
-
-    # Legacy provider → SDK type mapping
-    _legacy_sdk_map: dict[str, str] = {
-        "gemini": "gemini",
-        "claude": "anthropic",
-        "gpt": "openai",
-        "grok": "openai",
-        "local": "openai",
-    }
-
-    for agent_key, agent_def in agent_registry.all_agents().items():
-        sdk_type = _legacy_sdk_map.get(agent_key, "openai")
-
-        resolved_key = _resolve_api_key_for_agent(agent_def)
-        api_key = resolved_key or "dummy"
-
-        cache_key = f"{sdk_type}:{agent_def.server}:{api_key}"
-
-        ai_engine: Any
-
-        if sdk_type == "gemini":
-            if cache_key not in _client_cache:
-                from google import genai
-
-                _client_cache[cache_key] = genai.Client(api_key=api_key)
-            client = _client_cache[cache_key]
-            ai_engine = GeminiEngine(
-                name=agent_def.display_label,
-                model_name=agent_def.engine,
-                client=client,
-            )
-        elif sdk_type == "anthropic":
-            if cache_key not in _client_cache:
-                from anthropic import Anthropic
-
-                _client_cache[cache_key] = Anthropic(api_key=api_key)
-            client = _client_cache[cache_key]
-            ai_engine = ClaudeEngine(
-                name=agent_def.display_label,
-                model_name=agent_def.engine,
-                client=client,
-            )
-        else:
-            if cache_key not in _client_cache:
-                from openai import OpenAI
-
-                kwargs: dict[str, Any] = {"api_key": api_key}
-                if agent_def.server:
-                    kwargs["base_url"] = agent_def.server
-                _client_cache[cache_key] = OpenAI(**kwargs)
-            client = _client_cache[cache_key]
-            ai_engine = OpenAIEngine(
-                name=agent_def.display_label,
-                model_name=agent_def.engine,
-                client=client,
-            )
-
-        effective_max_tokens = (
-            agent_def.max_output_tokens
-            if agent_def.max_output_tokens is not None
-            else DEFAULT_MAX_OUTPUT_TOKENS
-        )
-        if hasattr(ai_engine, "max_output_tokens"):
-            ai_engine.max_output_tokens = effective_max_tokens
-        if hasattr(ai_engine, "max_tokens"):
-            ai_engine.max_tokens = effective_max_tokens
-
-        ai_engine.max_turns = runtime_settings.max_history_turns
-
-        agent_engines[agent_key] = ai_engine
+    legacy_sdk_map["local"] = "openai"
 
 
 def initialize_engines() -> None:
     """
-    Main entry point: parse the INI and initialize all agent engines.
-    Supports both new and old formats.
+    Main entry point: parse the INI and load all agent definitions.
+
+    After the AgentDefinition/AgentInstance separation, this function
+    only loads definitions into the registry. It no longer creates
+    AIEngine instances. Engine instantiation is deferred to AgentFactory
+    and AgentSession.
 
     Raises:
         SystemExit: If there is an error during startup.
     """
-    global agent_engines
+    global is_new_config_format, legacy_sdk_map
 
     from .registry import reset_registries
 
     reset_registries()
-    agent_engines.clear()
+    legacy_sdk_map = None
 
     try:
-        is_new_format = _detect_new_config_format()
+        is_new_config_format = _detect_new_config_format()
 
-        if is_new_format:
+        if is_new_config_format:
             _load_registries()
-            _build_agent_engines()
         else:
             _load_legacy_config()
-            _build_legacy_agent_engines()
 
         # Create working directories (preserve existing logic)
         for d_opt in ["work_efficient", "work_data"]:

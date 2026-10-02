@@ -4,14 +4,20 @@ Filter mode runner for Multi-AI CLI.
 Provides stateless Unix-style stdin -> AI -> stdout usage.
 Reads from stdin, sends a single request to one agent, and writes
 the result to stdout. All diagnostic output goes to stderr.
+
+Each filter mode invocation creates a fresh AIEngine instance via
+AgentFactory, ensuring complete isolation from REPL sessions and
+other concurrent executions.
 """
 
 import sys
 from dataclasses import dataclass, field
 
-from .config import agent_engines, logger
+from .agent_factory import AgentFactory
+from .config import logger
 from .engines import AIError
 from .parsers import BUILTIN_COMMANDS, load_reference_sections
+from .registry import agent_registry
 
 # Flags and tokens that are explicitly rejected in filter mode
 _REJECTED_FLAGS = {"-w", "--write", "-e", "--edit"}
@@ -105,9 +111,9 @@ def parse_filter_cli_input(argv: list[str]) -> ParsedFilterInput | None:
         return None
 
     # Validate that this agent actually exists (early check for better errors)
-    if agent_key not in agent_engines:
+    if not agent_registry.has(agent_key):
         _eprint(f"[!] Unknown agent '{primary_token}'.")
-        available = ", ".join("@" + k for k in sorted(agent_engines.keys()))
+        available = ", ".join("@" + k for k in sorted(agent_registry.keys()))
         _eprint(f"    Available agents: {available}")
         return None
 
@@ -224,7 +230,11 @@ def run_filter_mode(argv: list[str]) -> int:
     Entry point for filter mode execution.
 
     Reads stdin, resolves one agent, builds a prompt, executes a single
-    stateless request, and writes the result to stdout.
+    stateless request with a fresh AIEngine instance, and writes the
+    result to stdout.
+
+    Each invocation creates a completely independent engine instance
+    via AgentFactory, ensuring no shared mutable state.
 
     Input contract:
       Filter mode accepts any combination that provides at least one
@@ -248,13 +258,21 @@ def run_filter_mode(argv: list[str]) -> int:
     if parsed is None:
         return 2
 
-    # Agent existence is already validated in parse_filter_cli_input(),
-    # but retrieve the engine instance here.
-    engine = agent_engines.get(parsed.agent)
-    if engine is None:
-        # Defensive guard; should not normally be reached.
+    # Create a fresh engine instance for this filter request
+    factory = AgentFactory()
+
+    try:
+        agent_def = agent_registry.get(parsed.agent)
+    except ValueError:
         _eprint(f"[!] Unknown agent '@{parsed.agent}'.")
         return 2
+
+    try:
+        engine = factory.create(agent_def)
+    except Exception as e:
+        _eprint(f"[!] Failed to create agent instance: {e}")
+        logger.error(f"Filter mode: agent creation error: {e}")
+        return 1
 
     # Read stdin
     try:
@@ -288,11 +306,9 @@ def run_filter_mode(argv: list[str]) -> int:
     logger.info(f"Filter mode: @{parsed.agent} prompt ({len(prompt)} chars)")
 
     # Execute AI request with progress output suppressed.
-    # Temporary execution-scoped state on the shared engine instance,
-    # used to suppress interactive progress output in filter mode.
-    # This may later be replaced by per-call execution options
-    # (e.g. engine.call(prompt, quiet=True)).
-    _set_filter_mode(engine, True)
+    # Since engine is a fresh per-request instance, setting filter_mode
+    # is safe with no concurrency concerns.
+    engine.filter_mode = True
     try:
         result = engine.call(prompt)
     except AIError as e:
@@ -303,8 +319,6 @@ def run_filter_mode(argv: list[str]) -> int:
         _eprint(f"[!] Unexpected execution error: {e}")
         logger.error(f"Filter mode: unexpected error: {e}")
         return 1
-    finally:
-        _set_filter_mode(engine, False)
 
     # Write result to stdout only
     sys.stdout.write(result)
@@ -315,20 +329,3 @@ def run_filter_mode(argv: list[str]) -> int:
 
     logger.info(f"Filter mode: completed successfully ({len(result)} chars)")
     return 0
-
-
-def _set_filter_mode(engine: object, enabled: bool) -> None:
-    """
-    Sets or clears the filter_mode flag on an engine instance.
-
-    This is a temporary execution-scoped flag that suppresses interactive
-    progress/status output to stdout during auto-continue behavior.
-    It does not change any other engine behavior.
-
-    This approach may later be replaced by per-call execution options.
-
-    Args:
-        engine: The AI engine instance.
-        enabled: Whether to suppress progress output.
-    """
-    engine.filter_mode = enabled  # type: ignore[attr-defined]

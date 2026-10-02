@@ -19,6 +19,7 @@ from . import __version__
 
 if TYPE_CHECKING:
     from .engines import AIEngine
+    from .registry import AgentDefinition
 
 MARKER = "# ==================== END HEADER ===================="
 
@@ -207,24 +208,27 @@ def clear_thinking_line() -> None:
 
 
 def print_welcome_banner(
-    agent_engines: dict[str, "AIEngine"],
+    agent_defs: dict[str, "AgentDefinition"],
     is_log_enabled: bool,
 ) -> None:
     """
     Displays the startup banner with agent-to-model info and available commands.
 
+    Uses AgentDefinition metadata instead of AIEngine instances,
+    so no engine instantiation is required for the banner.
+
     Args:
-        agent_engines (dict[str, AIEngine]): Dictionary of agent key to
-            AIEngine instances.
+        agent_defs (dict[str, AgentDefinition]): Dictionary of agent key to
+            AgentDefinition instances.
         is_log_enabled (bool): Whether logging is enabled.
     """
     print("==================================================")
     print(f"  Multi-AI CLI v{__version__} (Agent/Engine Mode)")
     print("==================================================")
 
-    for agent_key, eng in sorted(agent_engines.items()):
+    for agent_key, agent_def in sorted(agent_defs.items()):
         label = f"  @{agent_key}"
-        print(f"{label:<20} -> {eng.model_name}")
+        print(f"{label:<20} -> {agent_def.engine}")
 
     print("==================================================")
 

@@ -23,13 +23,17 @@ DEFAULT_MAX_OUTPUT_TOKENS = 4096
 # ── Data classes ──
 
 
-@dataclass
+@dataclass(frozen=True)
 class AgentDefinition:
     """Agent definition containing all execution parameters.
 
     An agent is a logical alias that binds a name to an adapter,
     server endpoint, engine (model), and optional authentication
     and configuration.
+
+    This dataclass is frozen (immutable) to ensure that definitions
+    are not accidentally modified at runtime. All mutable state
+    belongs to AIEngine instances created by AgentFactory.
     """
 
     agent_key: str  # CLI alias (e.g., "reviewer", "local", "coder")
@@ -116,23 +120,6 @@ def validate_agent_alias(agent_key: str) -> None:
         raise ValueError(
             f"Invalid agent name '{agent_key}'. Allowed pattern: ^[a-z0-9_-]+$"
         )
-
-
-def validate_no_duplicate_agents_in_parallel(agent_keys: list[str]) -> None:
-    """
-    Validate that the same agent is not duplicated within a parallel block.
-
-    Raises:
-        ValueError: If duplicates exist
-    """
-    seen: set[str] = set()
-    for key in agent_keys:
-        if key in seen:
-            raise ValueError(
-                f"Duplicate agent '@{key}' in parallel block. "
-                f"An agent is stateful and cannot run concurrently with itself."
-            )
-        seen.add(key)
 
 
 # ── Global registry instances ──

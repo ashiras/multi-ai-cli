@@ -4,6 +4,10 @@ Main entry point for the Multi-AI CLI application.
 This module handles the application's lifecycle, including configuration
 loading, AI engine initialization, mode detection (interactive REPL vs
 filter mode), and command dispatch.
+
+Uses AgentSession for instance lifecycle management, ensuring that
+each REPL session maintains independent agent state while sharing
+immutable AgentDefinitions from the registry.
 """
 
 import os
@@ -11,9 +15,15 @@ import shlex
 import sys
 
 from . import __version__
-from .config import agent_engines, is_log_enabled, logger, setup_config, setup_logger
+from .config import is_log_enabled, legacy_sdk_map, logger, setup_config, setup_logger
 from .handlers import dispatch_command
+from .registry import agent_registry
 from .utils import print_welcome_banner
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .session import AgentSession
 
 # Valid values for the --mode flag
 _VALID_MODES = {"repl", "filter"}
@@ -80,6 +90,27 @@ def _extract_mode_arg(argv: list[str]) -> tuple[str | None, list[str]]:
     return mode, remaining
 
 
+def _create_session() -> "AgentSession":  # noqa: F821
+    """
+    Create an AgentSession with the current registry and a fresh factory.
+
+    For legacy config format, passes the legacy_sdk_map so that
+    the session can create engines with the correct SDK type.
+
+    Returns:
+        A new AgentSession instance.
+    """
+    from .agent_factory import AgentFactory
+    from .session import AgentSession
+
+    factory = AgentFactory()
+    return AgentSession(
+        registry=agent_registry,
+        factory=factory,
+        legacy_sdk_map=legacy_sdk_map,
+    )
+
+
 def _run_legacy_auto_detection(argv: list[str]) -> int:
     """
     Selects execution mode using the legacy stdin TTY detection heuristic.
@@ -141,8 +172,8 @@ def startup() -> None:
     Performs shared startup tasks for both interactive and filter modes.
 
     Loads the INI configuration, sets up logging, and initializes
-    all AI engine instances. Exits early for --version flag or if
-    the INI file is missing.
+    agent definitions in the registry. Exits early for --version flag
+    or if the INI file is missing.
     """
     if "--version" in sys.argv or "-v" in sys.argv:
         print(f"multi-ai version {__version__}")
@@ -201,13 +232,20 @@ def run_interactive_mode() -> int:
     """
     Runs the interactive REPL mode.
 
+    Creates a single AgentSession for the REPL lifetime. Within this
+    session, the same agent key always returns the same engine instance,
+    preserving conversation history across commands.
+
     Displays the welcome banner and enters the command loop, processing
     user input including pipeline chaining with '->'.
 
     Returns:
         int: Exit code (always 0 for normal termination).
     """
-    print_welcome_banner(agent_engines, is_log_enabled)
+    agent_defs = agent_registry.all_agents()
+    print_welcome_banner(agent_defs, is_log_enabled)
+
+    session = _create_session()
 
     while True:
         try:
@@ -254,7 +292,7 @@ def run_interactive_mode() -> int:
                         f"{' '.join(cmd_parts)}"
                     )
 
-                success = dispatch_command(cmd_parts)
+                success = dispatch_command(cmd_parts, session)
 
                 if not success and len(command_chain) > 1:
                     print("[!] Pipeline stopped due to an error in the current step.")
