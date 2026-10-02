@@ -25,6 +25,7 @@ __pycache__/
 logs/
 work_data/
 prompts/
+tmp/
 
 # OS files
 .DS_Store
