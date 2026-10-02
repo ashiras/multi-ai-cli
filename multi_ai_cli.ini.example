@@ -12,195 +12,260 @@ anthropic_api_key = ...
 grok_api_key = ...
 figma_access_token = ...
 
-# ------------------------------------------------------------------------------
-# Reusable model aliases
-# This section is a catalog, not a single default slot per provider.
-# Multiple models from the same provider may coexist.
-# ------------------------------------------------------------------------------
-[MODELS]
-# --- Gemini family ---
-gemini_pro         = gemini-3.1-pro-preview
-gemini_flash       = gemini-3.1-flash
-gemini_flash_image = gemini-3.1-flash-image-preview
 
-# --- OpenAI family ---
-gpt_main   = gpt-5.4
-gpt_budget = gpt-4o-mini
+# ==============================================================================
+# Runtime
+# ==============================================================================
+#
+# Global application/runtime behavior.
+# These values are independent of individual Agent definitions.
+# ==============================================================================
 
-# --- Claude family ---
-claude_main   = claude-opus-4-6
-claude_budget = claude-sonnet-4
-
-# --- Grok family ---
-grok_main = grok-4-latest
-
-# --- Local models ---
-local_qwen_coder = qwen2.5-coder:14b
-local_qwen_chat  = qwen2.5:14b
-
-# ------------------------------------------------------------------------------
-# Global runtime behavior
-# These are application/runtime controls, not model definitions.
-# ------------------------------------------------------------------------------
 [RUNTIME]
-# Maximum number of conversation turns (user + assistant pairs) to keep per agent.
+
+# Maximum number of conversation turns
+# (user + assistant pairs) retained by each Agent instance.
 max_history_turns = 30
 
-# Auto-continue tuning
+# Auto-continue behavior for responses that hit an output limit.
 auto_continue_max_rounds = 5
 auto_continue_tail_chars = 1200
 
-# ------------------------------------------------------------------------------
-# Engine definitions
-# Engine = physical execution backend
-# Each engine binds provider type + model + credential/base_url + limits.
-# ------------------------------------------------------------------------------
 
-[ENGINE.openai_main]
-type = openai
-api_key_ref = OPENAI_API_KEY
-model_ref = gpt_main
-max_output_tokens = 4096
+# ==============================================================================
+# Agents
+# ==============================================================================
+#
+# Agent names are logical aliases.
+#
+# The Agent name does NOT imply:
+#
+#   - Provider
+#   - Local / Cloud
+#   - Model
+#   - Adapter
+#
+# Required:
+#
+#   adapter
+#   server
+#   engine
+#
+# Optional:
+#
+#   api_key_ref
+#   role
+#   max_output_tokens
+#
+# Currently supported adapter:
+#
+#   openai-compatible
+#
+# Example:
+#
+#   [AGENT.reviewer]
+#   adapter = openai-compatible
+#   server = https://api.openai.com/v1
+#   engine = <model-name>
+#   api_key_ref = openai_api_key
+#   role = review
+#   max_output_tokens = 8192
+#
+# Agent aliases may contain:
+#
+#   a-z
+#   0-9
+#   _
+#   -
+#
+# ==============================================================================
 
-[ENGINE.openai_budget]
-type = openai
-api_key_ref = OPENAI_API_KEY
-model_ref = gpt_budget
-max_output_tokens = 4096
-
-[ENGINE.gemini_main]
-type = gemini
-api_key_ref = GEMINI_API_KEY
-model_ref = gemini_pro
-max_output_tokens = 8192
-
-[ENGINE.gemini_fast]
-type = gemini
-api_key_ref = GEMINI_API_KEY
-model_ref = gemini_flash
-max_output_tokens = 8192
-
-[ENGINE.gemini_image]
-type = gemini
-api_key_ref = GEMINI_API_KEY
-model_ref = gemini_flash_image
-max_output_tokens = 8192
-
-[ENGINE.claude_main]
-type = anthropic
-api_key_ref = anthropic_api_key
-model_ref = claude_main
-max_output_tokens = 8192
-
-[ENGINE.claude_budget]
-type = anthropic
-api_key_ref = anthropic_api_key
-model_ref = claude_budget
-max_output_tokens = 8192
-
-[ENGINE.grok_main]
-type = grok
-api_key_ref = grok_api_key
-model_ref = grok_main
-max_output_tokens = 8192
-
-# Local OpenAI-compatible backend (Ollama / LM Studio / vLLM etc.)
-[ENGINE.local_coder]
-type = local_openai
-base_url = http://localhost:11434/v1
-api_key = ollama
-model_ref = local_qwen_coder
-max_output_tokens = 8192
-
-[ENGINE.local_chat]
-type = local_openai
-base_url = http://localhost:11434/v1
-api_key = ollama
-model_ref = local_qwen_chat
-max_output_tokens = 8192
 
 # ------------------------------------------------------------------------------
-# Agent definitions
-# Agent = logical stateful actor
-# Keep these thin: only logical identity -> engine binding
+# OpenAI
 # ------------------------------------------------------------------------------
 
-# OpenAI-family logical agents
 [AGENT.gpt]
-engine = openai_main
+adapter = openai-compatible
+server = https://api.openai.com/v1
+engine = gpt-5.4
+api_key_ref = openai_api_key
+max_output_tokens = 8192
 
-[AGENT.gpt.code]
-engine = openai_main
 
-[AGENT.gpt.review]
-engine = openai_budget
+[AGENT.gpt_code]
+adapter = openai-compatible
+server = https://api.openai.com/v1
+engine = gpt-5.4
+api_key_ref = openai_api_key
+role = code
+max_output_tokens = 8192
 
-[AGENT.gpt.plan]
-engine = openai_main
 
-[AGENT.gpt.chat]
-engine = openai_budget
+[AGENT.gpt_review]
+adapter = openai-compatible
+server = https://api.openai.com/v1
+engine = gpt-4o-mini
+api_key_ref = openai_api_key
+role = review
+max_output_tokens = 8192
 
-# Gemini-family logical agents
-[AGENT.gemini]
-engine = gemini_main
 
-[AGENT.gemini.doc]
-engine = gemini_main
+[AGENT.gpt_plan]
+adapter = openai-compatible
+server = https://api.openai.com/v1
+engine = gpt-5.4
+api_key_ref = openai_api_key
+role = plan
+max_output_tokens = 8192
 
-[AGENT.gemini.chat]
-engine = gemini_fast
 
-[AGENT.gemini.image]
-engine = gemini_image
+[AGENT.gpt_chat]
+adapter = openai-compatible
+server = https://api.openai.com/v1
+engine = gpt-4o-mini
+api_key_ref = openai_api_key
+role = chat
+max_output_tokens = 8192
 
-# Claude-family logical agents
+# ------------------------------------------------------------------------------
+# Claude
+# ------------------------------------------------------------------------------
+
 [AGENT.claude]
-engine = claude_main
+adapter = openai-compatible
+server = https://api.anthropic.com/v1
+engine = claude-opus-4-6
+api_key_ref = anthropic_api_key
+max_output_tokens = 8192
 
-[AGENT.claude.plan]
-engine = claude_main
 
-[AGENT.claude.review]
-engine = claude_budget
+# ------------------------------------------------------------------------------
+# Gemini
+# ------------------------------------------------------------------------------
 
-[AGENT.claude.doc]
-engine = claude_main
+[AGENT.gemini]
+adapter = openai-compatible
+server = https://generativelanguage.googleapis.com/v1beta
+engine = gemini-3.1-pro-preview
+api_key_ref = GEMINI_API_KEY
+max_output_tokens = 8192
 
-# Grok-family logical agents
+# ------------------------------------------------------------------------------
+# Grok
+# ------------------------------------------------------------------------------
+
 [AGENT.grok]
-engine = grok_main
+adapter = openai-compatible
+server = https://api.x.ai/v1
+engine = grok-4-latest
+api_key_ref = grok_api_key
+max_output_tokens = 8192
 
-[AGENT.grok.chat]
-engine = grok_main
 
-# Local-family logical agents
+[AGENT.grok_chat]
+adapter = openai-compatible
+server = https://api.x.ai/v1
+engine = grok-4-latest
+api_key_ref = grok_api_key
+role = chat
+max_output_tokens = 8192
+
+
+# ------------------------------------------------------------------------------
+# Local LLM
+# ------------------------------------------------------------------------------
+#
+# Ollama / LM Studio / vLLM or another OpenAI-compatible local endpoint.
+#
+# api_key_ref is intentionally omitted because this endpoint does not require
+# authentication.
+# ------------------------------------------------------------------------------
+
 [AGENT.local]
-engine = local_chat
+adapter = openai-compatible
+server = http://192.168.11.24:11434/v1
+engine = qwen2.5:3b
+max_output_tokens = 8192
 
-[AGENT.local.code]
-engine = local_coder
 
-[AGENT.local.test]
-engine = local_coder
+[AGENT.local_code]
+adapter = openai-compatible
+server = http://192.168.11.24:11434/v1
+engine = qwen2.5:3b
+role = code
+max_output_tokens = 8192
 
-[AGENT.local.chat]
-engine = local_chat
 
-# ------------------------------------------------------------------------------
-# Application paths
-# ------------------------------------------------------------------------------
+[AGENT.local_test]
+adapter = openai-compatible
+server = http://192.168.11.24:11434/v1
+engine = qwen2.5:3b
+role = test
+max_output_tokens = 8192
+
+
+[AGENT.local_chat]
+adapter = openai-compatible
+server = http://192.168.11.24:11434/v1
+engine = qwen2.5:3b
+role = chat
+max_output_tokens = 8192
+
+
+# ==============================================================================
+# Gemini / Claude
+# ==============================================================================
+#
+# The current new Agent configuration supports only:
+#
+#   adapter = openai-compatible
+#
+# Therefore native Gemini and Anthropic endpoints are not defined here.
+#
+# They can be added later when:
+#
+#   adapter = gemini
+#   adapter = anthropic
+#
+# are supported, or when an OpenAI-compatible gateway is used.
+#
+# Example through an OpenAI-compatible gateway:
+#
+# [AGENT.gemini]
+# adapter = openai-compatible
+# server = http://<gateway>/v1
+# engine = gemini-3.1-pro-preview
+# api_key_ref = gemini_api_key
+# max_output_tokens = 8192
+#
+# [AGENT.claude]
+# adapter = openai-compatible
+# server = http://<gateway>/v1
+# engine = claude-opus-4-6
+# api_key_ref = anthropic_api_key
+# max_output_tokens = 8192
+
+
+# ==============================================================================
+# Application Paths
+# ==============================================================================
+
 [Paths]
-# Folder for prompt/persona assets used by commands like @efficient
+
+# Folder for prompt/persona assets used by commands such as @efficient.
 work_efficient = prompts
 
-# Blackboard directory for read/write artifacts (-r / -w)
+# Blackboard directory for read/write artifacts (-r / -w).
 work_data = work_data
 
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
 # Logging
-# ------------------------------------------------------------------------------
+# ==============================================================================
+
 [logging]
+
 enabled = true
 log_dir = logs
 base_filename = chat.log
@@ -208,22 +273,32 @@ max_bytes = 10485760
 backup_count = 5
 log_level = INFO
 
-# ------------------------------------------------------------------------------
-# Adapter / integration-specific configuration
-# These are not engines.
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Figma Integration
+# ==============================================================================
+
 [FIGMA]
+
 handoff_dir = work_data/figma_handoff
 
 
-# ------------------------------------------------------------------------------
-# GitHub read-only adapter configuration
+# ==============================================================================
+# GitHub Read-only Integration
+# ==============================================================================
+#
 # Used by @github.* commands.
+#
 # Environment variables override these values:
+#
 #   GITHUB_TOKEN
 #   GITHUB_API_BASE_URL
-# For organization/private repositories, ensure the token Resource owner
+#
+# For organization/private repositories, ensure that the token Resource owner
 # and repository permissions are configured correctly.
-# ------------------------------------------------------------------------------
-token = ...
+# ==============================================================================
+
+[GITHUB]
+
+token =
 api_base_url = https://api.github.com
