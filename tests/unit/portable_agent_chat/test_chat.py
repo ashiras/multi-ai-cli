@@ -86,6 +86,54 @@ def test_chat_session_send_with_files(mock_create_session, tmp_path):
 
 
 @patch("portable_agent_chat.chat.create_agent_session")
+def test_chat_session_send_clears_pending_output_even_if_write_fails(
+    mock_create_session,
+):
+    mock_session, mock_engine = MagicMock(), MagicMock()
+    mock_session.is_valid_agent.return_value = True
+    mock_session.get_agent.return_value = mock_engine
+    mock_create_session.return_value = mock_session
+    mock_engine.call.return_value = "assistant response"
+
+    chat = ChatSession("test_agent")
+    chat.pending_output = "out.txt"
+
+    with patch(
+        "portable_agent_chat.chat.write_new_file",
+        side_effect=OSError("write failed"),
+    ) as mock_write:
+        with pytest.raises(OSError, match="write failed"):
+            chat.send("hello!")
+
+    assert chat.last_response == "assistant response"
+    assert chat.pending_output is None
+    mock_engine.call.assert_called_once_with("hello!")
+    mock_write.assert_called_once_with("out.txt", "assistant response")
+
+
+@patch("portable_agent_chat.chat.create_agent_session")
+def test_chat_session_send_clears_pending_reads_if_engine_call_fails(
+    mock_create_session, tmp_path
+):
+    mock_session, mock_engine = MagicMock(), MagicMock()
+    mock_session.is_valid_agent.return_value = True
+    mock_session.get_agent.return_value = mock_engine
+    mock_create_session.return_value = mock_session
+    mock_engine.call.side_effect = RuntimeError("model failed")
+
+    chat = ChatSession("test_agent")
+
+    in_file = tmp_path / "input.txt"
+    in_file.write_text("file data")
+    chat.add_pending_read(str(in_file))
+
+    with pytest.raises(RuntimeError, match="model failed"):
+        chat.send("process this")
+
+    assert chat.pending_reads == []
+
+
+@patch("portable_agent_chat.chat.create_agent_session")
 def test_chat_session_write_last_response(mock_create_session, tmp_path):
     mock_session = MagicMock()
     mock_session.is_valid_agent.return_value = True

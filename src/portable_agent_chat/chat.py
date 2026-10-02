@@ -53,12 +53,13 @@ class ChatSession:
 
         The path may contain glob patterns such as ``*.py`` or ``**/*.py``.
         Matching files are validated immediately when the command is issued.
+        Files already queued for the next prompt are not added again.
 
         Args:
             pattern: File path or glob pattern to include in the next request.
 
         Returns:
-            The list of matched file paths.
+            The list of newly queued file paths.
 
         Raises:
             FileNotFoundError: If no files match the path or pattern.
@@ -73,6 +74,9 @@ class ChatSession:
 
             # Validate readability now rather than waiting until send().
             read_file(path_str)
+
+            if path_str in self.pending_reads:
+                continue
 
             self.pending_reads.append(path_str)
             queued.append(path_str)
