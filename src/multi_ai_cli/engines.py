@@ -108,7 +108,7 @@ class GeminiEngine(AIEngine):
         Args:
             name (str): The name of the AI engine.
             model_name (str): The name of the specific Gemini model being used.
-            client (genai.Client): The Google GenAI client instance to use
+            client (genai.Client): TheGoogle GenAI client instance to use
                 for communications.
         """
         super().__init__(name, model_name)

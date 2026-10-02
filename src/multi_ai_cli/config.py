@@ -14,7 +14,7 @@ from logging.handlers import RotatingFileHandler
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .engines import AIEngine
+    pass
 
 config = configparser.ConfigParser()
 logger = logging.getLogger("MultiAI")
@@ -125,72 +125,59 @@ def get_api_key(opt: str, env_var: str) -> str:
     return val
 
 
-def _resolve_api_key(engine_def: Any) -> str:
+def _resolve_api_key_for_agent(agent_def: Any) -> str | None:
     """
-    Resolve the API key from an EngineDefinition.
+    Resolve the API key from an AgentDefinition.
 
     Priority:
-    1. engine_def.api_key (inline specification)
-    2. api_key_ref → retrieved from [API_KEYS] (with environment variable override)
+    1. api_key_ref → retrieved from [API_KEYS] (with environment variable override)
+    2. None if api_key_ref is not specified (allows auth-free endpoints)
 
     Args:
-        engine_def: EngineDefinition instance.
+        agent_def: AgentDefinition instance.
 
     Returns:
-        str: Resolved API key.
+        str | None: Resolved API key, or None if not specified.
 
     Raises:
-        ValueError: If no API key can be resolved.
+        ValueError: If api_key_ref is specified but cannot be resolved.
     """
-    if engine_def.api_key:
-        return engine_def.api_key
-
-    if engine_def.api_key_ref:
-        ref = engine_def.api_key_ref
-        # The environment variable name is the uppercase version of ref
+    if agent_def.api_key_ref:
+        ref = agent_def.api_key_ref
         env_var = ref.upper()
         return get_api_key(ref, env_var)
-
-    raise ValueError(f"Engine '{engine_def.name}' has no api_key or api_key_ref.")
+    return None
 
 
 def _detect_new_config_format() -> bool:
     """
-    Determine whether at least one [ENGINE.*] or [AGENT.*] section exists in the INI.
+    Determine whether at least one [AGENT.*] section exists in the INI.
 
     Returns:
         bool: True if new-format sections are detected.
     """
     for section in config.sections():
-        if section.startswith("ENGINE.") or section.startswith("AGENT."):
+        if section.startswith("AGENT."):
             return True
     return False
 
 
 def _load_registries() -> None:
     """
-    Parse the new-format INI and build the three registries and runtime settings.
+    Parse the new-format INI and build the agent registry and runtime settings.
+    Reads [AGENT.*] sections directly and creates AgentDefinition instances.
     Validation is also performed here.
 
     Raises:
-        ValueError: If validation fails for any engine or agent definition.
+        ValueError: If validation fails for any agent definition.
     """
     from .registry import (
-        VALID_ENGINE_TYPES,
+        VALID_ADAPTER_TYPES,
         AgentDefinition,
-        EngineDefinition,
         agent_registry,
-        engine_registry,
-        model_registry,
         runtime_settings,
-        validate_agent_name,
-        validate_namespace_engine_consistency,
+        validate_agent_alias,
     )
-
-    # ── [MODELS] ──
-    if config.has_section("MODELS"):
-        for alias, model_string in config.items("MODELS"):
-            model_registry.register(alias, model_string.strip())
 
     # ── [RUNTIME] ──
     if config.has_section("RUNTIME"):
@@ -204,83 +191,75 @@ def _load_registries() -> None:
             "RUNTIME", "auto_continue_tail_chars", fallback=1200
         )
 
-    # ── [ENGINE.*] ──
-    for section in config.sections():
-        if not section.startswith("ENGINE."):
-            continue
-        engine_name = section[len("ENGINE.") :].lower()
-
-        engine_type = config.get(section, "type", fallback="").strip().lower()
-        if engine_type not in VALID_ENGINE_TYPES:
-            raise ValueError(
-                f"Engine '{engine_name}': invalid type '{engine_type}'. "
-                f"Valid: {VALID_ENGINE_TYPES}"
-            )
-
-        api_key_ref = (
-            config.get(section, "api_key_ref", fallback="").strip().lower() or None
-        )
-        api_key_inline = config.get(section, "api_key", fallback="").strip() or None
-        model_ref = (
-            config.get(section, "model_ref", fallback="").strip().lower() or None
-        )
-        model_inline = config.get(section, "model", fallback="").strip() or None
-        base_url = config.get(section, "base_url", fallback="").strip() or None
-        max_output_tokens = config.getint(section, "max_output_tokens", fallback=4096)
-
-        # Check that model_ref exists
-        if model_ref and not model_registry.has(model_ref):
-            raise ValueError(
-                f"Engine '{engine_name}': model_ref '{model_ref}' "
-                f"not found in [MODELS]."
-            )
-
-        # Check that api_key_ref exists (within the API_KEYS section)
-        if api_key_ref:
-            if not config.has_option("API_KEYS", api_key_ref):
-                env_var = api_key_ref.upper()
-                if not os.environ.get(env_var):
-                    raise ValueError(
-                        f"Engine '{engine_name}': api_key_ref '{api_key_ref}' "
-                        f"not found in [API_KEYS] and env '{env_var}' not set."
-                    )
-
-        engine_def = EngineDefinition(
-            name=engine_name,
-            type=engine_type,
-            api_key_ref=api_key_ref,
-            api_key=api_key_inline,
-            model_ref=model_ref,
-            model=model_inline,
-            base_url=base_url,
-            max_output_tokens=max_output_tokens,
-        )
-        engine_registry.register(engine_def)
-
     # ── [AGENT.*] ──
     for section in config.sections():
         if not section.startswith("AGENT."):
             continue
         agent_key = section[len("AGENT.") :].lower()
 
-        # Name validation
-        namespace, role = validate_agent_name(agent_key)
+        # Alias validation
+        validate_agent_alias(agent_key)
 
-        engine_name = config.get(section, "engine", fallback="").strip().lower()
-        if not engine_name:
+        # Required fields
+        adapter = config.get(section, "adapter", fallback="").strip().lower()
+        if not adapter:
+            raise ValueError(f"Agent '{agent_key}': 'adapter' field is required.")
+        if adapter not in VALID_ADAPTER_TYPES:
+            raise ValueError(
+                f"Agent '{agent_key}': invalid adapter '{adapter}'. "
+                f"Valid: {VALID_ADAPTER_TYPES}"
+            )
+
+        server = config.get(section, "server", fallback="").strip()
+        if not server:
+            raise ValueError(f"Agent '{agent_key}': 'server' field is required.")
+
+        engine = config.get(section, "engine", fallback="").strip()
+        if not engine:
             raise ValueError(f"Agent '{agent_key}': 'engine' field is required.")
-        if not engine_registry.has(engine_name):
-            raise ValueError(f"Agent '{agent_key}': engine '{engine_name}' not found.")
 
-        # Check namespace-engine family consistency
-        engine_def = engine_registry.get(engine_name)
-        validate_namespace_engine_consistency(agent_key, namespace, engine_def)
+        # Optional fields
+        api_key_ref = (
+            config.get(section, "api_key_ref", fallback="").strip().lower() or None
+        )
+        role = config.get(section, "role", fallback="").strip() or None
+
+        max_output_tokens_str = config.get(
+            section, "max_output_tokens", fallback=""
+        ).strip()
+        max_output_tokens: int | None = None
+        if max_output_tokens_str:
+            try:
+                max_output_tokens = int(max_output_tokens_str)
+            except ValueError:
+                raise ValueError(
+                    f"Agent '{agent_key}': 'max_output_tokens' must be an integer, "
+                    f"got '{max_output_tokens_str}'."
+                )
+            if max_output_tokens < 1:
+                raise ValueError(
+                    f"Agent '{agent_key}': 'max_output_tokens' must be >= 1, "
+                    f"got {max_output_tokens}."
+                )
+
+        # Validate api_key_ref existence if specified
+        if api_key_ref:
+            if not config.has_option("API_KEYS", api_key_ref):
+                env_var = api_key_ref.upper()
+                if not os.environ.get(env_var):
+                    raise ValueError(
+                        f"Agent '{agent_key}': api_key_ref '{api_key_ref}' "
+                        f"not found in [API_KEYS] and env '{env_var}' not set."
+                    )
 
         agent_def = AgentDefinition(
             agent_key=agent_key,
-            engine_name=engine_name,
-            namespace=namespace,
+            adapter=adapter,
+            server=server,
+            engine=engine,
+            api_key_ref=api_key_ref,
             role=role,
+            max_output_tokens=max_output_tokens,
         )
         agent_registry.register(agent_def)
 
@@ -288,26 +267,23 @@ def _load_registries() -> None:
 def _load_legacy_config() -> None:
     """
     Migration compatibility layer that internally maps old-format INI files
-    (without ENGINE/AGENT sections) into the new structure when detected.
+    (without AGENT sections) into the new AgentDefinition structure.
 
     Mapping rules:
-    - [MODELS] gemini_model → model alias "gemini_default" → ENGINE.gemini_default → AGENT.gemini
-    - [MODELS] gpt_model    → model alias "gpt_default"    → ENGINE.openai_default → AGENT.gpt
-    - [MODELS] claude_model → same pattern
-    - [MODELS] grok_model   → same pattern
-    - [LOCAL] → ENGINE.local_default → AGENT.local
+    - [MODELS] gemini_model → AGENT gemini (adapter=openai-compatible, via proxy)
+    - [MODELS] gpt_model    → AGENT gpt
+    - [MODELS] claude_model → AGENT claude
+    - [MODELS] grok_model   → AGENT grok
+    - [LOCAL] → AGENT local
     """
     from .registry import (
         AgentDefinition,
-        EngineDefinition,
         agent_registry,
-        engine_registry,
-        model_registry,
         runtime_settings,
     )
 
     logger.warning(
-        "Legacy INI format detected. Consider migrating to [ENGINE.*]/[AGENT.*] sections."
+        "Legacy INI format detected. Consider migrating to [AGENT.*] sections."
     )
 
     # ── RUNTIME compatibility: runtime values inside the old [MODELS] ──
@@ -323,88 +299,68 @@ def _load_legacy_config() -> None:
         )
 
     # ── Legacy provider mapping ──
+    # Each tuple: (old MODELS key, default model, agent_key, server, api_key_ref,
+    #              max_tokens_key, default_max_tokens)
     legacy_providers = [
-        # (old MODELS key, default model, alias name, engine name, type, namespace, api_key_ref)
-        (
-            "gemini_model",
-            "gemini-2.5-flash",
-            "gemini_default",
-            "gemini_default",
-            "gemini",
-            "gemini",
-            "gemini_api_key",
-        ),
         (
             "gpt_model",
             "gpt-4o-mini",
-            "gpt_default",
-            "openai_default",
-            "openai",
             "gpt",
+            "https://api.openai.com/v1",
             "openai_api_key",
+            "openai_max_tokens",
+            4096,
         ),
         (
             "claude_model",
             "claude-3-5-sonnet-20241022",
-            "claude_default",
-            "claude_default",
-            "anthropic",
             "claude",
+            "https://api.anthropic.com/v1",
             "anthropic_api_key",
+            "claude_max_tokens",
+            8192,
+        ),
+        (
+            "gemini_model",
+            "gemini-2.5-flash",
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini_api_key",
+            "gemini_max_output_tokens",
+            8192,
         ),
         (
             "grok_model",
             "grok-4-latest",
-            "grok_default",
-            "grok_default",
             "grok",
-            "grok",
+            "https://api.x.ai/v1",
             "grok_api_key",
+            "grok_max_tokens",
+            4096,
         ),
     ]
 
     for (
         model_key,
         default_model,
-        alias,
-        eng_name,
-        eng_type,
-        namespace,
+        agent_key,
+        server,
         api_key_ref,
+        max_tokens_key,
+        default_max_tokens,
     ) in legacy_providers:
         model_str = config.get("MODELS", model_key, fallback=default_model)
-        model_registry.register(alias, model_str)
-
-        # Old key names for max_output_tokens
-        max_tokens_key_map = {
-            "openai": "openai_max_tokens",
-            "anthropic": "claude_max_tokens",
-            "gemini": "gemini_max_output_tokens",
-            "grok": "grok_max_tokens",
-        }
         max_tokens = config.getint(
-            "MODELS", max_tokens_key_map.get(eng_type, ""), fallback=4096
+            "MODELS", max_tokens_key, fallback=default_max_tokens
         )
-
-        base_url = None
-        if eng_type == "grok":
-            base_url = "https://api.x.ai/v1"
-
-        engine_def = EngineDefinition(
-            name=eng_name,
-            type=eng_type,
-            api_key_ref=api_key_ref,
-            model_ref=alias,
-            base_url=base_url,
-            max_output_tokens=max_tokens,
-        )
-        engine_registry.register(engine_def)
 
         agent_def = AgentDefinition(
-            agent_key=namespace,
-            engine_name=eng_name,
-            namespace=namespace,
-            role=None,
+            agent_key=agent_key,
+            adapter="openai-compatible",
+            server=server,
+            engine=model_str,
+            api_key_ref=api_key_ref,
+            max_output_tokens=max_tokens,
         )
         agent_registry.register(agent_def)
 
@@ -413,23 +369,13 @@ def _load_legacy_config() -> None:
     local_model = config.get("LOCAL", "model", fallback="qwen2.5-coder:14b")
     local_max = config.getint("MODELS", "local_max_tokens", fallback=8192)
 
-    model_registry.register("local_default", local_model)
-    engine_registry.register(
-        EngineDefinition(
-            name="local_default",
-            type="local_openai",
-            api_key="ollama",
-            model_ref="local_default",
-            base_url=local_base,
-            max_output_tokens=local_max,
-        )
-    )
     agent_registry.register(
         AgentDefinition(
             agent_key="local",
-            engine_name="local_default",
-            namespace="local",
-            role=None,
+            adapter="openai-compatible",
+            server=local_base,
+            engine=local_model,
+            max_output_tokens=local_max,
         )
     )
 
@@ -438,57 +384,36 @@ def _build_agent_engines() -> None:
     """
     Generate SDK clients from all agent definitions and
     register AIEngine instances in agent_engines.
+
+    Dispatches based on agent_def.adapter, not agent name.
     """
     global agent_engines
 
-    from .engines import ClaudeEngine, GeminiEngine, OpenAIEngine
+    from .engines import OpenAIEngine
     from .registry import (
+        DEFAULT_MAX_OUTPUT_TOKENS,
         agent_registry,
-        engine_registry,
-        model_registry,
         runtime_settings,
     )
 
     # SDK client cache (reused for identical credentials + base_url)
     _client_cache: dict[str, Any] = {}
 
-    def _get_or_create_client(engine_def: Any) -> Any:
-        """Create/cache an SDK client based on engine_def."""
-        cache_key = (
-            f"{engine_def.type}:"
-            f"{engine_def.api_key_ref or ''}:"
-            f"{engine_def.api_key or ''}:"
-            f"{engine_def.base_url or ''}"
-        )
+    def _get_or_create_openai_client(agent_def: Any) -> Any:
+        """Create/cache an OpenAI SDK client based on agent_def."""
+        resolved_key = _resolve_api_key_for_agent(agent_def)
+        api_key = resolved_key or "dummy"
+
+        cache_key = f"openai-compatible:{agent_def.server}:{api_key}"
         if cache_key in _client_cache:
             return _client_cache[cache_key]
 
-        api_key = _resolve_api_key(engine_def)
+        from openai import OpenAI
 
-        client: Any
-
-        if engine_def.type == "gemini":
-            from google import genai
-
-            client = genai.Client(api_key=api_key)
-
-        elif engine_def.type == "anthropic":
-            from anthropic import Anthropic
-
-            client = Anthropic(api_key=api_key)
-
-        elif engine_def.type in ("openai", "grok", "local_openai"):
-            from openai import OpenAI
-
-            kwargs: dict[str, Any] = {"api_key": api_key}
-            if engine_def.base_url:
-                kwargs["base_url"] = engine_def.base_url
-            elif engine_def.type == "grok":
-                kwargs["base_url"] = "https://api.x.ai/v1"
-            client = OpenAI(**kwargs)
-
-        else:
-            raise ValueError(f"Unknown engine type: {engine_def.type}")
+        client = OpenAI(
+            api_key=api_key,
+            base_url=agent_def.server,
+        )
 
         _client_cache[cache_key] = client
         return client
@@ -496,51 +421,124 @@ def _build_agent_engines() -> None:
     agent_engines.clear()
 
     for agent_key, agent_def in agent_registry.all_agents().items():
-        engine_def = engine_registry.get(agent_def.engine_name)
+        ai_engine: Any
 
-        # Resolve the model string
-        if engine_def.model_ref:
-            resolved_model = model_registry.resolve(engine_def.model_ref)
-        elif engine_def.model:
-            resolved_model = engine_def.model
-        else:
-            raise ValueError(
-                f"Engine '{engine_def.name}' has neither model_ref nor model."
-            )
+        if agent_def.adapter == "openai-compatible":
+            client = _get_or_create_openai_client(agent_def)
 
-        client = _get_or_create_client(engine_def)
-
-        ai_engine: AIEngine
-
-        # Create AIEngine instance — pass display_label to the name argument
-        if engine_def.type == "gemini":
-            ai_engine = GeminiEngine(
-                name=agent_def.display_label,
-                model_name=resolved_model,
-                client=client,
-            )
-        elif engine_def.type == "anthropic":
-            ai_engine = ClaudeEngine(
-                name=agent_def.display_label,
-                model_name=resolved_model,
-                client=client,
-            )
-        elif engine_def.type in ("openai", "grok", "local_openai"):
             ai_engine = OpenAIEngine(
                 name=agent_def.display_label,
-                model_name=resolved_model,
+                model_name=agent_def.engine,
                 client=client,
             )
         else:
-            raise ValueError(f"Cannot create engine for type: {engine_def.type}")
+            raise ValueError(
+                f"Agent '{agent_key}': unsupported adapter '{agent_def.adapter}'."
+            )
 
         # Apply max_output_tokens
+        effective_max_tokens = (
+            agent_def.max_output_tokens
+            if agent_def.max_output_tokens is not None
+            else DEFAULT_MAX_OUTPUT_TOKENS
+        )
         if hasattr(ai_engine, "max_output_tokens"):
-            ai_engine.max_output_tokens = engine_def.max_output_tokens
+            ai_engine.max_output_tokens = effective_max_tokens
         if hasattr(ai_engine, "max_tokens"):
-            ai_engine.max_tokens = engine_def.max_output_tokens
+            ai_engine.max_tokens = effective_max_tokens
 
         # Apply runtime settings
+        ai_engine.max_turns = runtime_settings.max_history_turns
+
+        agent_engines[agent_key] = ai_engine
+
+
+def _build_legacy_agent_engines() -> None:
+    """
+    Generate SDK clients for legacy config format.
+
+    Legacy agents may use Gemini, Anthropic, or OpenAI SDKs based on
+    their agent_key, since the legacy format implies specific providers.
+    """
+    global agent_engines
+
+    from .engines import ClaudeEngine, GeminiEngine, OpenAIEngine
+    from .registry import (
+        DEFAULT_MAX_OUTPUT_TOKENS,
+        agent_registry,
+        runtime_settings,
+    )
+
+    _client_cache: dict[str, Any] = {}
+
+    agent_engines.clear()
+
+    # Legacy provider → SDK type mapping
+    _legacy_sdk_map: dict[str, str] = {
+        "gemini": "gemini",
+        "claude": "anthropic",
+        "gpt": "openai",
+        "grok": "openai",
+        "local": "openai",
+    }
+
+    for agent_key, agent_def in agent_registry.all_agents().items():
+        sdk_type = _legacy_sdk_map.get(agent_key, "openai")
+
+        resolved_key = _resolve_api_key_for_agent(agent_def)
+        api_key = resolved_key or "dummy"
+
+        cache_key = f"{sdk_type}:{agent_def.server}:{api_key}"
+
+        ai_engine: Any
+
+        if sdk_type == "gemini":
+            if cache_key not in _client_cache:
+                from google import genai
+
+                _client_cache[cache_key] = genai.Client(api_key=api_key)
+            client = _client_cache[cache_key]
+            ai_engine = GeminiEngine(
+                name=agent_def.display_label,
+                model_name=agent_def.engine,
+                client=client,
+            )
+        elif sdk_type == "anthropic":
+            if cache_key not in _client_cache:
+                from anthropic import Anthropic
+
+                _client_cache[cache_key] = Anthropic(api_key=api_key)
+            client = _client_cache[cache_key]
+            ai_engine = ClaudeEngine(
+                name=agent_def.display_label,
+                model_name=agent_def.engine,
+                client=client,
+            )
+        else:
+            if cache_key not in _client_cache:
+                from openai import OpenAI
+
+                kwargs: dict[str, Any] = {"api_key": api_key}
+                if agent_def.server:
+                    kwargs["base_url"] = agent_def.server
+                _client_cache[cache_key] = OpenAI(**kwargs)
+            client = _client_cache[cache_key]
+            ai_engine = OpenAIEngine(
+                name=agent_def.display_label,
+                model_name=agent_def.engine,
+                client=client,
+            )
+
+        effective_max_tokens = (
+            agent_def.max_output_tokens
+            if agent_def.max_output_tokens is not None
+            else DEFAULT_MAX_OUTPUT_TOKENS
+        )
+        if hasattr(ai_engine, "max_output_tokens"):
+            ai_engine.max_output_tokens = effective_max_tokens
+        if hasattr(ai_engine, "max_tokens"):
+            ai_engine.max_tokens = effective_max_tokens
+
         ai_engine.max_turns = runtime_settings.max_history_turns
 
         agent_engines[agent_key] = ai_engine
@@ -562,12 +560,14 @@ def initialize_engines() -> None:
     agent_engines.clear()
 
     try:
-        if _detect_new_config_format():
+        is_new_format = _detect_new_config_format()
+
+        if is_new_format:
             _load_registries()
+            _build_agent_engines()
         else:
             _load_legacy_config()
-
-        _build_agent_engines()
+            _build_legacy_agent_engines()
 
         # Create working directories (preserve existing logic)
         for d_opt in ["work_efficient", "work_data"]:

@@ -598,11 +598,12 @@ wheels = [
 
 [[package]]
 name = "multi-ai-cli"
-version = "0.14.0"
+version = "0.14.1"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "charset-normalizer" },
+    { name = "freesimplegui" },
     { name = "gnureadline" },
     { name = "google-genai" },
     { name = "openai" },
@@ -618,6 +619,7 @@ gui = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "freesimplegui" },
     { name = "mypy" },
     { name = "pyinstaller" },
     { name = "pytest" },
@@ -629,6 +631,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.84.0" },
     { name = "charset-normalizer", specifier = ">=3.4.5" },
+    { name = "freesimplegui", specifier = ">=5.2.0.post1" },
     { name = "freesimplegui", marker = "extra == 'gui'" },
     { name = "gnureadline", specifier = ">=8.3.3" },
     { name = "google-genai", specifier = ">=1.66.0" },
@@ -641,6 +644,7 @@ provides-extras = ["gui"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "freesimplegui", specifier = ">=5.2.0.post1" },
     { name = "mypy", specifier = ">=1.19.1" },
     { name = "pyinstaller", specifier = ">=6.19.0" },
     { name = "pytest", specifier = ">=9.0.2" },

@@ -9,13 +9,14 @@ The GUI is still at mock level. Its primary purpose is to explore
 usability, validate frontend concepts, and observe how existing
 Multi-AI CLI workflows translate into a graphical interface.
 """
+# mypy: ignore-errors
 
 import os
 import subprocess
 import threading
 from typing import IO
 
-import FreeSimpleGUI  # type: ignore[import-untyped]
+import FreeSimpleGUI as sg  # type: ignore[import-untyped]
 
 # =================================================================
 # 1. Paths and directory settings
