@@ -11,11 +11,11 @@ requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.84.0",
     "charset-normalizer>=3.4.5",
-    "freesimplegui>=5.2.0.post1",
     "gnureadline>=8.3.3",
     "google-genai>=1.66.0",
     "openai>=2.26.0",
     "prompt-toolkit>=3.0.53",
+    "pyside6>=6.11.2",
     "python-dotenv>=1.2.2",
     "requests>=2.32.5",
     "types-requests>=2.32.4.20260107",
@@ -27,8 +27,7 @@ gui = ["FreeSimpleGUI"]
 [project.scripts]
 multi-ai = "multi_ai_cli.main:main"
 portable-chat = "portable_agent_chat.main:main"
-# uv run python -m multi_ai_gui.main
-# multi-ai-gui = "multi_ai_gui.main:main"
+multi-ai-gui = "multi_ai_gui.main:main"
 
 [tool.uv.build-backend]
 module-name = ["multi_ai_cli", "multi_ai_gui"]

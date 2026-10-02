@@ -457,26 +457,111 @@ def handle_sh(parts: list[str]) -> bool:
 
 def handle_sequence(parts: list[str], session: "AgentSession") -> None:
     """
-    Handles @sequence command (requires -e/--edit flag).
+    Handles @sequence command.
+
+    Supported input modes:
+
+        @sequence -e
+        @sequence --edit
+
+        @sequence -f <file>
+        @sequence --file <file>
+
+    Sequence files are resolved relative to the configured
+    work_efficient directory (default: prompts/).
 
     Args:
-        parts (list[str]): List of command parts, expecting the ``-e`` or
-            ``--edit`` flag.
+        parts (list[str]): List of command parts.
         session (AgentSession): The current agent session.
     """
-    has_edit = any(t in ("-e", "--edit") for t in parts[1:])
+    args = parts[1:]
 
-    if not has_edit:
-        print("[!] Usage: @sequence -e")
-        print("    The -e (--edit) flag is required.")
+    has_edit = any(t in ("-e", "--edit") for t in args)
+
+    file_flag_indexes = [i for i, token in enumerate(args) if token in ("-f", "--file")]
+
+    # ---------------------------------------------------------
+    # Validate input mode
+    # ---------------------------------------------------------
+
+    if has_edit and file_flag_indexes:
+        print("[!] @sequence: -e/--edit and -f/--file cannot be used together.")
+        print("[!] Usage:")
+        print("    @sequence -e")
+        print("    @sequence -f <file>")
         return
 
-    logger.info("[*] @sequence: Opening editor for pipeline input.")
-    editor_content = open_editor_for_prompt()
-    if editor_content is None:
+    sequence_content: str | None = None
+
+    # ---------------------------------------------------------
+    # Editor mode
+    # ---------------------------------------------------------
+
+    if has_edit:
+        if len(args) != 1:
+            print("[!] Usage: @sequence -e")
+            return
+
+        logger.info("[*] @sequence: Opening editor for pipeline input.")
+
+        sequence_content = open_editor_for_prompt()
+        if sequence_content is None:
+            return
+
+    # ---------------------------------------------------------
+    # File mode
+    # ---------------------------------------------------------
+
+    elif file_flag_indexes:
+        if len(file_flag_indexes) > 1:
+            print("[!] @sequence: -f/--file specified more than once.")
+            return
+
+        file_flag_index = file_flag_indexes[0]
+
+        if file_flag_index + 1 >= len(args):
+            print("[!] @sequence: -f/--file requires a filename.")
+            print("[!] Usage: @sequence -f <file>")
+            return
+
+        if len(args) != 2:
+            print("[!] Usage: @sequence -f <file>")
+            return
+
+        filename = args[file_flag_index + 1]
+
+        try:
+            filepath = secure_resolve_path(
+                filename,
+                "efficient",
+                config=config,
+            )
+
+            with open(filepath, encoding="utf-8") as f:
+                sequence_content = f.read()
+
+            logger.info(f"[*] @sequence: Loaded pipeline from '{filename}'.")
+
+        except Exception as e:
+            print(f"[!] @sequence: Failed to load sequence file '{filename}': {e}")
+            logger.error(f"@sequence file load failed for '{filename}': {e}")
+            return
+
+    # ---------------------------------------------------------
+    # No input mode
+    # ---------------------------------------------------------
+
+    else:
+        print("[!] Usage:")
+        print("    @sequence -e")
+        print("    @sequence -f <file>")
         return
 
-    parsed_steps = parse_sequence_steps(editor_content)
+    # ---------------------------------------------------------
+    # Parse sequence
+    # ---------------------------------------------------------
+
+    parsed_steps = parse_sequence_steps(sequence_content)
     if parsed_steps is None or not parsed_steps:
         print("[!] No valid steps found in sequence. Cancelled.")
         return
@@ -500,7 +585,8 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> None:
                         f"@pause cannot be used inside a parallel block (task {t_idx})."
                     )
                     print(
-                        f"[!] Cascade Stop: {total_steps - step_idx} remaining step(s) skipped."
+                        f"[!] Cascade Stop: "
+                        f"{total_steps - step_idx} remaining step(s) skipped."
                     )
                     logger.error(
                         f"@sequence validation error at step {step_idx}: "
@@ -509,56 +595,86 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> None:
                     return
 
             print(
-                f"[*] Executing Step {step_idx}/{total_steps} [PARALLEL: {len(step_tasks)} tasks]..."
+                f"[*] Executing Step {step_idx}/{total_steps} "
+                f"[PARALLEL: {len(step_tasks)} tasks]..."
             )
+
             for t_idx, task in enumerate(step_tasks, 1):
                 print(f"    Task {t_idx}: {shlex.join(task)}")
 
             results = {}
+
             with ThreadPoolExecutor(max_workers=len(step_tasks)) as executor:
                 future_to_task = {}
+
                 for t_idx, task in enumerate(step_tasks, 1):
                     # Each parallel task gets its own independent child session
                     child_session = session.create_child_session()
-                    future = executor.submit(dispatch_command, task, child_session)
+
+                    future = executor.submit(
+                        dispatch_command,
+                        task,
+                        child_session,
+                    )
+
                     future_to_task[future] = t_idx
 
                 for future in as_completed(future_to_task):
                     t_idx = future_to_task[future]
+
                     try:
                         results[t_idx] = future.result()
+
                     except Exception as e:
                         logger.error(f"Step {step_idx}, Task {t_idx} failed: {e}")
                         results[t_idx] = False
 
             all_success = all(results.values())
+
             if not all_success:
                 failed = [t for t, ok in results.items() if not ok]
+
                 print(
-                    f"[!] Step {step_idx}/{total_steps} PARALLEL BLOCK FAILED. Tasks: {failed}"
+                    f"[!] Step {step_idx}/{total_steps} "
+                    f"PARALLEL BLOCK FAILED. Tasks: {failed}"
                 )
+
                 print(
-                    f"[!] Cascade Stop: {total_steps - step_idx} remaining step(s) skipped."
+                    f"[!] Cascade Stop: "
+                    f"{total_steps - step_idx} remaining step(s) skipped."
                 )
+
                 logger.error(f"@sequence Cascade Stop at parallel step {step_idx}")
+
                 return
 
             print(
-                f"[✓] Step {step_idx}/{total_steps} completed (all parallel tasks done)."
+                f"[✓] Step {step_idx}/{total_steps} completed "
+                f"(all parallel tasks done)."
             )
 
         else:
             tokens = step_tasks[0]
+
             print(f"[*] Executing Step {step_idx}/{total_steps}...")
+
             print(f"    Command: {shlex.join(tokens)}")
 
-            success = dispatch_command(tokens, session)
+            success = dispatch_command(
+                tokens,
+                session,
+            )
+
             if not success:
                 print(f"[!] Step {step_idx}/{total_steps} failed. Halting sequence.")
+
                 print(
-                    f"[!] Cascade Stop: {total_steps - step_idx} remaining step(s) skipped."
+                    f"[!] Cascade Stop: "
+                    f"{total_steps - step_idx} remaining step(s) skipped."
                 )
+
                 logger.error(f"@sequence Cascade Stop at step {step_idx}")
+
                 return
 
             print(f"[✓] Step {step_idx}/{total_steps} completed successfully.")
@@ -567,5 +683,7 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> None:
             print("-" * 50)
 
     print("=" * 50)
+
     print(f"[✓] Sequence Execution complete. All {total_steps} steps succeeded.")
+
     logger.info("[*] @sequence: Pipeline completed successfully.")

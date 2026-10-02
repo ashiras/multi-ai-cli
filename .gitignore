@@ -24,7 +24,6 @@ __pycache__/
 # Runtime / local data
 logs/
 work_data/
-prompts/
 tmp/
 
 # OS files
