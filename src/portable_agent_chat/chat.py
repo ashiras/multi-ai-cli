@@ -84,6 +84,8 @@ class ChatSession:
 
         Any queued file reads are embedded into the effective prompt before
         sending. Queued reads are always cleared after the request attempt.
+        Any queued output path is consumed after the response is generated,
+        even if writing the file fails.
 
         Args:
             prompt: User prompt text.
@@ -114,8 +116,9 @@ class ChatSession:
         self.last_response = response
 
         if self.pending_output is not None:
-            write_new_file(self.pending_output, response)
+            output_path = self.pending_output
             self.pending_output = None
+            write_new_file(output_path, response)
 
         return response
 
