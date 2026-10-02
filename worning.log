@@ -1,0 +1,61 @@
+F841 Local variable `result` is assigned to but never used
+  --> tests/unit/multi_ai_cli/adapter/github/test_github_rest_backend.py:75:9
+   |
+73 |     def test_get_contents_no_ref(self, mock_req):
+74 |         mock_req.return_value = [{"name": "file.txt"}]
+75 |         result = self.backend.get_contents("owner", "repo", "src", None)
+   |         ^^^^^^
+76 |         mock_req.assert_called_once_with(
+77 |             "GET", "/repos/owner/repo/contents/src", params=None
+   |
+help: Remove assignment to unused variable `result`
+
+F841 Local variable `result` is assigned to but never used
+  --> tests/unit/multi_ai_cli/adapter/github/test_github_rest_backend.py:83:9
+   |
+81 |     def test_get_contents_with_ref(self, mock_req):
+82 |         mock_req.return_value = {"name": "file.txt"}
+83 |         result = self.backend.get_contents("owner", "repo", "src/file.txt", "v1.0")
+   |         ^^^^^^
+84 |         mock_req.assert_called_once_with(
+85 |             "GET", "/repos/owner/repo/contents/src/file.txt", params={"ref": "v1.0"}
+   |
+help: Remove assignment to unused variable `result`
+
+F841 Local variable `result` is assigned to but never used
+   --> tests/unit/multi_ai_cli/adapter/github/test_github_rest_backend.py:98:9
+    |
+ 96 |     def test_get_issues(self, mock_req):
+ 97 |         mock_req.return_value = [{"number": 1}]
+ 98 |         result = self.backend.get_issues(
+    |         ^^^^^^
+ 99 |             "owner", "repo", state="open", labels="bug", assignee="user1"
+100 |         )
+    |
+help: Remove assignment to unused variable `result`
+
+E731 Do not assign a `lambda` expression, use a `def`
+  --> tests/unit/multi_ai_cli/adapter/shell/test_shell_adapter.py:76:13
+   |
+74 |         try:
+75 |             parsed = ParsedShInput(run_file="test.sh")
+76 |             resolve_fn = lambda name: tmpfile
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+77 |             cmd, use_shell = self.adapter.build_command(
+78 |                 parsed, resolve_path_fn=resolve_fn
+   |
+help: Rewrite `resolve_fn` as a `def`
+
+F841 Local variable `mock_scrub` is assigned to but never used
+  --> tests/unit/multi_ai_cli/test_handlers.py:67:61
+   |
+66 |     def test_flush_command(self):
+67 |         with patch("multi_ai_cli.handlers.handle_scrub") as mock_scrub:
+   |                                                             ^^^^^^^^^^
+68 |             result = dispatch_command(["@flush"], self.session)
+69 |             assert result is True
+   |
+help: Remove assignment to unused variable `mock_scrub`
+
+Found 5 errors.
+No fixes available (5 hidden fixes can be enabled with the `--unsafe-fixes` option).

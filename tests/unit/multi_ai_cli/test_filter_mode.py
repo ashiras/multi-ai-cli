@@ -1,9 +1,6 @@
 """Tests for multi_ai_cli.filter_mode module."""
 
-import importlib
-import os
-import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -167,9 +164,7 @@ class TestBuildFilterPrompt:
         real_config = configparser.ConfigParser()
         real_config.read_dict({"Paths": {"work_data": str(tmp_path)}})
 
-        with patch(
-            "multi_ai_cli.filter_mode.load_reference_sections"
-        ) as mock_load:
+        with patch("multi_ai_cli.filter_mode.load_reference_sections") as mock_load:
             mock_load.return_value = [
                 "--- [File: ref.txt] ---\nreference content\n--- [End of File: ref.txt] ---"
             ]

@@ -1,7 +1,5 @@
 """Tests for multi_ai_cli.adapters.figma.models module."""
 
-import pytest
-
 from multi_ai_cli.adapters.figma.models import (
     FigmaError,
     FigmaPullRequest,

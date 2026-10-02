@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from multi_ai_cli.handlers import (
     dispatch_command,
     handle_pause,
@@ -66,7 +64,7 @@ class TestDispatchCommand:
             mock_scrub.assert_called_once()
 
     def test_flush_command(self):
-        with patch("multi_ai_cli.handlers.handle_scrub") as mock_scrub:
+        with patch("multi_ai_cli.handlers.handle_scrub"):
             result = dispatch_command(["@flush"], self.session)
             assert result is True
 
@@ -103,17 +101,13 @@ class TestDispatchCommand:
     def test_github_repo(self):
         with patch("multi_ai_cli.adapters.github.facade.handle_github_repo") as mock_gh:
             mock_gh.return_value = True
-            result = dispatch_command(
-                ["@github.repo", "--repo", "o/r"], self.session
-            )
+            result = dispatch_command(["@github.repo", "--repo", "o/r"], self.session)
             assert result is True
 
     def test_github_tree(self):
         with patch("multi_ai_cli.adapters.github.facade.handle_github_tree") as mock_gh:
             mock_gh.return_value = True
-            result = dispatch_command(
-                ["@github.tree", "--repo", "o/r"], self.session
-            )
+            result = dispatch_command(["@github.tree", "--repo", "o/r"], self.session)
             assert result is True
 
     def test_github_file(self):
@@ -125,7 +119,9 @@ class TestDispatchCommand:
             assert result is True
 
     def test_github_issue(self):
-        with patch("multi_ai_cli.adapters.github.facade.handle_github_issue") as mock_gh:
+        with patch(
+            "multi_ai_cli.adapters.github.facade.handle_github_issue"
+        ) as mock_gh:
             mock_gh.return_value = True
             result = dispatch_command(
                 ["@github.issue", "--repo", "o/r", "--number", "1"], self.session
@@ -133,11 +129,11 @@ class TestDispatchCommand:
             assert result is True
 
     def test_github_issues(self):
-        with patch("multi_ai_cli.adapters.github.facade.handle_github_issues") as mock_gh:
+        with patch(
+            "multi_ai_cli.adapters.github.facade.handle_github_issues"
+        ) as mock_gh:
             mock_gh.return_value = True
-            result = dispatch_command(
-                ["@github.issues", "--repo", "o/r"], self.session
-            )
+            result = dispatch_command(["@github.issues", "--repo", "o/r"], self.session)
             assert result is True
 
     def test_efficient_command(self):

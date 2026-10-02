@@ -119,4 +119,3 @@ class TestFigmaAdapterPush:
 
         assert response.success is True
         mock_push.push.assert_called_once_with(request, "content")
-

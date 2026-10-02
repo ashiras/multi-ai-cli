@@ -1,7 +1,5 @@
 """Tests for multi_ai_cli.adapters.github.facade module."""
 
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from multi_ai_cli.adapters.github.facade import (
@@ -158,9 +156,7 @@ class TestParseGitHubArgs:
 
     def test_missing_path_value(self):
         with pytest.raises(ValueError, match="requires a value"):
-            _parse_github_args(
-                ["@github.tree", "--repo", "o/r", "--path"], "tree"
-            )
+            _parse_github_args(["@github.tree", "--repo", "o/r", "--path"], "tree")
 
     def test_missing_write_value(self):
         with pytest.raises(ValueError, match="requires a filename"):

@@ -33,7 +33,7 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
 
-    prompt_session = PromptSession(multiline=True)
+    prompt_session: PromptSession[str] = PromptSession(multiline=True)
 
     print("portable-chat")
     print(f"agent: {args.agent}")

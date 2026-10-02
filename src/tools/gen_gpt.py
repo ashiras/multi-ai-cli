@@ -18,7 +18,7 @@ def extract_files(text: str) -> list[tuple[str, str]]:
     for match in re.finditer(pattern, text):
         raw_path = match.group(1).strip()
         # ===== や === などの装飾を除去してパスだけを抽出
-        filepath = re.sub(r'^[=\s#]+|[=\s#]+$', '', raw_path).strip()
+        filepath = re.sub(r"^[=\s#]+|[=\s#]+$", "", raw_path).strip()
         content = match.group(2)
         if filepath:
             files.append((filepath, content))

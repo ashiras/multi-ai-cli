@@ -4,10 +4,10 @@ import pytest
 
 from multi_ai_cli.adapters.figma.models import FigmaError, NormalizedNode
 from multi_ai_cli.adapters.figma.normalize import (
+    _convert_node,
+    _find_page,
     normalize_file_response,
     normalize_nodes_response,
-    _find_page,
-    _convert_node,
 )
 
 

@@ -1,11 +1,11 @@
 """Tests for multi_ai_cli.agent_factory module."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from multi_ai_cli.agent_factory import AgentFactory
-from multi_ai_cli.registry import AgentDefinition, DEFAULT_MAX_OUTPUT_TOKENS
+from multi_ai_cli.registry import DEFAULT_MAX_OUTPUT_TOKENS, AgentDefinition
 
 
 class TestAgentFactory:

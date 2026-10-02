@@ -26,17 +26,11 @@ def _load_real_config_module():
     of sys.modules['multi_ai_cli.config'].
     """
     src_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "multi_ai_cli"
-        / "config.py"
+        Path(__file__).resolve().parents[2] / "src" / "multi_ai_cli" / "config.py"
     )
     if not src_path.exists():
         src_path = (
-            Path(__file__).resolve().parents[3]
-            / "src"
-            / "multi_ai_cli"
-            / "config.py"
+            Path(__file__).resolve().parents[3] / "src" / "multi_ai_cli" / "config.py"
         )
     if not src_path.exists():
         pytest.skip(f"Cannot locate config.py source at {src_path}")
@@ -75,9 +69,7 @@ def config_mod():
 
 class TestSetupConfig:
     def test_loads_ini(self, config_mod):
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ini", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
             f.write("[API_KEYS]\ntest_key = abc123\n")
             tmppath = f.name
 

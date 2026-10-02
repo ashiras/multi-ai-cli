@@ -21,7 +21,6 @@ from multi_ai_cli.parsers import (
     load_reference_sections,
     normalize_step,
     parse_cli_input,
-    parse_sequence_steps,
     smart_split_parallel,
     smart_split_steps,
 )
@@ -61,7 +60,16 @@ class TestParsedInput:
 
 class TestIsKnownFlag:
     def test_known_flags(self):
-        for flag in ["-r", "--read", "-w", "--write", "-m", "--message", "-e", "--edit"]:
+        for flag in [
+            "-r",
+            "--read",
+            "-w",
+            "--write",
+            "-m",
+            "--message",
+            "-e",
+            "--edit",
+        ]:
             assert _is_known_flag(flag), f"{flag} should be known"
 
     def test_write_variants(self):

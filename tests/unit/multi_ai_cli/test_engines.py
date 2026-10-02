@@ -1,6 +1,6 @@
 """Tests for multi_ai_cli.engines module — unit tests with mocked SDK clients."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -39,10 +39,7 @@ class TestAIEngineBase:
         engine = OpenAIEngine(name="Test", model_name="gpt-4", client=client)
         engine.max_turns = 2
         # Add 6 messages (3 turns)
-        engine.history = [
-            {"role": "user", "content": f"msg{i}"}
-            for i in range(6)
-        ]
+        engine.history = [{"role": "user", "content": f"msg{i}"} for i in range(6)]
         engine._trim_history()
         # Should keep last 4 messages (2 turns * 2)
         assert len(engine.history) == 4
@@ -224,6 +221,7 @@ class TestClaudeEngine:
 
         # Need to make isinstance check work
         from anthropic.types import TextBlock
+
         mock_block.__class__ = TextBlock
 
         mock_response = MagicMock()
@@ -253,6 +251,7 @@ class TestClaudeEngine:
         client = MagicMock()
 
         from anthropic.types import TextBlock
+
         mock_block = MagicMock()
         mock_block.__class__ = TextBlock
         mock_block.text = "OK"

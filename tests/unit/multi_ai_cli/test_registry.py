@@ -9,10 +9,10 @@ from multi_ai_cli.registry import (
     AgentDefinition,
     AgentRegistry,
     RuntimeSettings,
-    reset_registries,
-    validate_agent_alias,
     agent_registry,
+    reset_registries,
     runtime_settings,
+    validate_agent_alias,
 )
 
 

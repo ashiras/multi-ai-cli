@@ -94,9 +94,21 @@ class TestGitHubAdapterGetTree:
     def test_sorting(self):
         mock_backend = MagicMock()
         mock_backend.get_contents.return_value = [
-            {"name": "zebra.txt", "path": "zebra.txt", "type": "file", "size": 1, "sha": "z"},
+            {
+                "name": "zebra.txt",
+                "path": "zebra.txt",
+                "type": "file",
+                "size": 1,
+                "sha": "z",
+            },
             {"name": "alpha", "path": "alpha", "type": "dir", "sha": "a"},
-            {"name": "beta.txt", "path": "beta.txt", "type": "file", "size": 2, "sha": "b"},
+            {
+                "name": "beta.txt",
+                "path": "beta.txt",
+                "type": "file",
+                "size": 2,
+                "sha": "b",
+            },
             {"name": "aaa", "path": "aaa", "type": "dir", "sha": "d"},
         ]
         adapter = GitHubAdapter(backend=mock_backend)
@@ -317,8 +329,7 @@ class TestGitHubAdapterGetIssuesList:
         mock_backend = MagicMock()
         # Page 1: only PRs
         page1 = [
-            {**self._make_issue(i), "pull_request": {"url": "..."}}
-            for i in range(1, 4)
+            {**self._make_issue(i), "pull_request": {"url": "..."}} for i in range(1, 4)
         ]
         # Page 2: real issues
         page2 = [self._make_issue(10), self._make_issue(11)]

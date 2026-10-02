@@ -1,8 +1,5 @@
 """Tests for multi_ai_cli.main module."""
 
-import sys
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from multi_ai_cli.main import (

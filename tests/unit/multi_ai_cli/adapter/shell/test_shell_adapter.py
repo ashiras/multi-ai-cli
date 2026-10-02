@@ -73,8 +73,13 @@ class TestShellAdapterBuildCommand:
 
         try:
             parsed = ParsedShInput(run_file="test.sh")
-            resolve_fn = lambda name: tmpfile
-            cmd, use_shell = self.adapter.build_command(parsed, resolve_path_fn=resolve_fn)
+
+            def resolve_fn(name):
+                return tmpfile
+
+            cmd, use_shell = self.adapter.build_command(
+                parsed, resolve_path_fn=resolve_fn
+            )
             assert cmd == ["bash", tmpfile]
         finally:
             os.unlink(tmpfile)
@@ -179,18 +184,14 @@ class TestShellAdapterResolveRunner:
 
 class TestShellAdapterFormatArtifactText:
     def test_success(self):
-        text = ShellAdapter.format_artifact_text(
-            "echo hi", 0, "hi\n", "", 10.5
-        )
+        text = ShellAdapter.format_artifact_text("echo hi", 0, "hi\n", "", 10.5)
         assert "SUCCESS" in text
         assert "echo hi" in text
         assert "hi" in text
         assert "10.5ms" in text
 
     def test_failure(self):
-        text = ShellAdapter.format_artifact_text(
-            "false", 1, "", "error\n", 5.0
-        )
+        text = ShellAdapter.format_artifact_text("false", 1, "", "error\n", 5.0)
         assert "FAILURE" in text
         assert "error" in text
 
@@ -201,9 +202,7 @@ class TestShellAdapterFormatArtifactText:
 
 class TestShellAdapterFormatArtifactJson:
     def test_valid_json(self):
-        result = ShellAdapter.format_artifact_json(
-            "echo hi", 0, "hi\n", "", 10.0
-        )
+        result = ShellAdapter.format_artifact_json("echo hi", 0, "hi\n", "", 10.0)
         data = json.loads(result)
         assert data["command"] == "echo hi"
         assert data["status"] == "success"

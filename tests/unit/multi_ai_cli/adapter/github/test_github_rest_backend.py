@@ -1,6 +1,6 @@
 """Tests for multi_ai_cli.adapters.github.backends.rest_backend module."""
 
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -72,7 +72,7 @@ class TestGitHubRESTBackend:
     @patch.object(GitHubRESTBackend, "_request")
     def test_get_contents_no_ref(self, mock_req):
         mock_req.return_value = [{"name": "file.txt"}]
-        result = self.backend.get_contents("owner", "repo", "src", None)
+        self.backend.get_contents("owner", "repo", "src", None)
         mock_req.assert_called_once_with(
             "GET", "/repos/owner/repo/contents/src", params=None
         )
@@ -80,7 +80,7 @@ class TestGitHubRESTBackend:
     @patch.object(GitHubRESTBackend, "_request")
     def test_get_contents_with_ref(self, mock_req):
         mock_req.return_value = {"name": "file.txt"}
-        result = self.backend.get_contents("owner", "repo", "src/file.txt", "v1.0")
+        self.backend.get_contents("owner", "repo", "src/file.txt", "v1.0")
         mock_req.assert_called_once_with(
             "GET", "/repos/owner/repo/contents/src/file.txt", params={"ref": "v1.0"}
         )
@@ -95,7 +95,7 @@ class TestGitHubRESTBackend:
     @patch.object(GitHubRESTBackend, "_request")
     def test_get_issues(self, mock_req):
         mock_req.return_value = [{"number": 1}]
-        result = self.backend.get_issues(
+        self.backend.get_issues(
             "owner", "repo", state="open", labels="bug", assignee="user1"
         )
         mock_req.assert_called_once()
