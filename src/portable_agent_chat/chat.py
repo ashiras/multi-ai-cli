@@ -4,7 +4,12 @@ import multi_ai_cli.config as multi_ai_config
 from multi_ai_cli.agent_factory import AgentFactory
 from multi_ai_cli.registry import agent_registry
 from multi_ai_cli.session import AgentSession
-from portable_agent_chat.files import ensure_new_file, read_file, write_new_file
+from portable_agent_chat.files import (
+    ensure_new_file,
+    read_file,
+    resolve_read_paths,
+    write_new_file,
+)
 
 
 def create_agent_session() -> AgentSession:
@@ -43,21 +48,36 @@ class ChatSession:
         self.pending_output: str | None = None
         self.pending_reads: list[str] = []
 
-    def add_pending_read(self, path: str) -> None:
-        """Queue a file to be included in the next prompt.
+    def add_pending_read(self, pattern: str) -> list[str]:
+        """Queue one or more files to be included in the next prompt.
 
-        The file is validated immediately when the command is issued.
+        The path may contain glob patterns such as ``*.py`` or ``**/*.py``.
+        Matching files are validated immediately when the command is issued.
 
         Args:
-            path: Path to the file to include in the next request.
+            pattern: File path or glob pattern to include in the next request.
+
+        Returns:
+            The list of matched file paths.
 
         Raises:
-            FileNotFoundError: If the file does not exist.
-            ValueError: If the path is not a regular file.
-            OSError: If the file cannot be read.
+            FileNotFoundError: If no files match the path or pattern.
+            OSError: If a matched file cannot be read.
         """
-        read_file(path)
-        self.pending_reads.append(path)
+        paths = resolve_read_paths(pattern)
+
+        queued: list[str] = []
+
+        for path in paths:
+            path_str = str(path)
+
+            # Validate readability now rather than waiting until send().
+            read_file(path_str)
+
+            self.pending_reads.append(path_str)
+            queued.append(path_str)
+
+        return queued
 
     def send(self, prompt: str) -> str:
         """Send a prompt to the current agent and return the response.

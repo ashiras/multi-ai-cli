@@ -26,6 +26,7 @@ class AgentFactory:
     """
 
     def __init__(self) -> None:
+        """Initialize the factory with an empty SDK client cache."""
         self._client_cache: dict[str, Any] = {}
 
     def create(self, agent_def: AgentDefinition) -> Any:

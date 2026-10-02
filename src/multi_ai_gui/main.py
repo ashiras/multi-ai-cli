@@ -16,6 +16,8 @@ import subprocess
 import threading
 from typing import IO
 
+import FreeSimpleGUI
+
 # =================================================================
 # 1. Paths and directory settings
 # =================================================================

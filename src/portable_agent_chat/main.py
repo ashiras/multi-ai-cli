@@ -69,8 +69,13 @@ def main() -> None:
 
             elif command.type is CommandType.READ:
                 try:
-                    chat.add_pending_read(command.path)
-                    print(f"queued {command.path}")
+                    paths = chat.add_pending_read(command.path)
+
+                    if len(paths) == 1:
+                        print(f"queued {paths[0]}")
+                    else:
+                        print(f"queued {len(paths)} files")
+
                 except (FileNotFoundError, ValueError, OSError) as exc:
                     print(f"error: {exc}")
 

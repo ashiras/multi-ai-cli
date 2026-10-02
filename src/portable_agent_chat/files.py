@@ -1,5 +1,6 @@
 """File utility helpers for reading and writing UTF-8 text files."""
 
+from glob import glob
 from pathlib import Path
 
 
@@ -25,6 +26,28 @@ def read_file(path: str) -> str:
         raise ValueError(f"not a file: {path}")
 
     return target.read_text(encoding="utf-8")
+
+
+def resolve_read_paths(pattern: str) -> list[Path]:
+    """Resolve a file path or glob pattern into matching regular files.
+
+    Args:
+        pattern: File path or glob pattern to resolve.
+
+    Returns:
+        Sorted matching file paths.
+
+    Raises:
+        FileNotFoundError: If no regular files match the pattern.
+    """
+    paths = [
+        Path(p) for p in sorted(glob(pattern, recursive=True)) if Path(p).is_file()
+    ]
+
+    if not paths:
+        raise FileNotFoundError(f"no files matched: {pattern}")
+
+    return paths
 
 
 def write_new_file(path: str, content: str) -> int:
