@@ -425,3 +425,22 @@ Block Labels ("## ..."):
 - The label attaches to the entire "[" ... "]" block as a whole (not to the first node inside).
 - A "## ..." line not followed by a "[" block is a syntax error (strict) or ignored (weak).
 ``` 
+
+## 新機能: portable_agent_chat
+
+`v0.15.0` で `portable_agent_chat` を新たに追加しました。
+
+この機能は、multi-ai-cli 内でより持ち運びしやすいチャット指向の利用フローを提供するためのものです。
+詳細は設定例や利用方法を参照してください。
+
+## 設定ファイルの変更について
+
+`v0.15.0` から `multi_ai_cli.ini` の構成を大きく見直しました。
+
+旧バージョンから更新する場合は、以下を確認してください。
+
+- 既存の `multi_ai_cli.ini` を見直す
+- 最新の設定形式と差分を確認する
+- 必要に応じて旧設定を新しい形式へ移行する
+
+移行前に既存の設定ファイルをバックアップしておくことをおすすめします。
