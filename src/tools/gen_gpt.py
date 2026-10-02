@@ -9,15 +9,19 @@ def extract_files(text: str) -> list[tuple[str, str]]:
     r"""Extract files from ChatGPT output.
 
     Expected format: ```python\n# path/to/file.py\n(code)\n```
+    Also supports variations like "# ===== path/to/file.py ====="
     """
     files = []
 
     pattern = r"```(?:\w+)?\n#\s*([^\n]+)\n([\s\S]*?)\n```"
 
     for match in re.finditer(pattern, text):
-        filepath = match.group(1).strip()
+        raw_path = match.group(1).strip()
+        # ===== や === などの装飾を除去してパスだけを抽出
+        filepath = re.sub(r'^[=\s#]+|[=\s#]+$', '', raw_path).strip()
         content = match.group(2)
-        files.append((filepath, content))
+        if filepath:
+            files.append((filepath, content))
 
     return files
 
