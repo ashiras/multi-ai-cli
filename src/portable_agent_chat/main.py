@@ -1,13 +1,68 @@
 """CLI entry point for the portable chat application."""
 
 import argparse
+from collections.abc import Iterable
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import (
+    CompleteEvent,
+    Completer,
+    Completion,
+    PathCompleter,
+)
+from prompt_toolkit.document import Document
+from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 
 from multi_ai_cli.main import startup
 from multi_ai_cli.utils import clear_thinking_line
 from portable_agent_chat.chat import ChatSession
 from portable_agent_chat.commands import CommandType, parse_command
+
+
+class ChatCompleter(Completer):
+    """Complete colon commands and file paths after :r, :w, and :o."""
+
+    def __init__(self) -> None:
+        """Initialize the command and path completer."""
+        self.paths = PathCompleter(expanduser=True)
+
+    def get_completions(
+        self,
+        document: Document,
+        complete_event: CompleteEvent,
+    ) -> Iterable[Completion]:
+        """Yield completions for colon commands and file paths."""
+        line = document.text_before_cursor.split("\n")[-1]
+
+        if line.startswith(":") and " " not in line:
+            for cmd in (":r ", ":w ", ":o "):
+                if cmd.startswith(line):
+                    yield Completion(cmd[len(line) :], display=cmd.strip())
+            return
+
+        for prefix in (":r ", ":w ", ":o "):
+            if line.startswith(prefix):
+                rest = line[len(prefix) :]
+                yield from self.paths.get_completions(
+                    Document(rest, cursor_position=len(rest)),
+                    complete_event,
+                )
+                return
+
+
+bindings = KeyBindings()
+
+
+@bindings.add("tab")
+def _complete_or_indent(event: KeyPressEvent) -> None:
+    """Complete colon commands; otherwise keep multiline indentation."""
+    buf = event.app.current_buffer
+    line = buf.document.current_line_before_cursor
+
+    if line.startswith(":"):
+        buf.start_completion(select_first=False)
+    else:
+        buf.insert_text("    ")
 
 
 def main() -> None:
@@ -33,7 +88,12 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
 
-    prompt_session: PromptSession[str] = PromptSession(multiline=True)
+    prompt_session: PromptSession[str] = PromptSession(
+        multiline=True,
+        completer=ChatCompleter(),
+        complete_while_typing=False,
+        key_bindings=bindings,
+    )
 
     print("portable-chat")
     print(f"agent: {args.agent}")
