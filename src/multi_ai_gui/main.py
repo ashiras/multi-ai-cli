@@ -267,6 +267,34 @@ def populate_tree(
         tree_widget.setCurrentItem(item_to_select)
 
 
+def _get_multi_ai_repl_command() -> tuple[str, list[str], str]:
+    """Return program, arguments, and working directory for the CLI REPL."""
+    if getattr(sys, "frozen", False):
+        executable_dir = os.path.dirname(sys.executable)
+
+        program = os.path.join(
+            executable_dir,
+            "multi-ai",
+        )
+
+        return (
+            program,
+            ["--mode", "repl"],
+            executable_dir,
+        )
+
+    return (
+        "uv",
+        [
+            "run",
+            "multi-ai",
+            "--mode",
+            "repl",
+        ],
+        CLI_DIR,
+    )
+
+
 # =================================================================
 # 4. Main Window
 # =================================================================
@@ -500,8 +528,7 @@ class MainWindow(QMainWindow):
         self.btn_abort.setEnabled(waiting)
 
         process_running = (
-            self.process is not None
-            and self.process.state() == QProcess.Running
+            self.process is not None and self.process.state() == QProcess.Running
         )
         self.btn_send.setEnabled(process_running and not waiting)
         self.btn_run_sequence.setEnabled(process_running and not waiting)
@@ -880,7 +907,8 @@ class MainWindow(QMainWindow):
                 pass
 
         self.process = QProcess(self)
-        self.process.setWorkingDirectory(CLI_DIR)
+        program, arguments, working_dir = _get_multi_ai_repl_command()
+        self.process.setWorkingDirectory(working_dir)
         self.process.setProcessChannelMode(QProcess.MergedChannels)
 
         env = QProcessEnvironment.systemEnvironment()
@@ -902,7 +930,10 @@ class MainWindow(QMainWindow):
         self.btn_run_sequence.setEnabled(False)
         self.btn_restart_repl.setEnabled(False)
 
-        self.process.start("uv", ["run", "multi-ai", "--mode", "repl"])
+        self.process.start(
+            program,
+            arguments,
+        )
 
     def _restart_repl_session(self) -> None:
         if self.process and self.process.state() != QProcess.NotRunning:

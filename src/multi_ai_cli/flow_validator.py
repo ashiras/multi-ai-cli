@@ -206,30 +206,30 @@ def _collect_agent_keys(
         return set()
 
     if isinstance(node, SequenceNode):
-        agents: set[str] = set()
+        sequence_agents: set[str] = set()
 
         for child in node.children:
-            agents.update(
+            sequence_agents.update(
                 _collect_agent_keys(
                     child,
                     agent_commands=agent_commands,
                 )
             )
 
-        return agents
+        return sequence_agents
 
     if isinstance(node, ParallelNode):
-        agents: set[str] = set()
+        parallel_agents: set[str] = set()
 
         for branch in node.branches:
-            agents.update(
+            parallel_agents.update(
                 _collect_agent_keys(
                     branch,
                     agent_commands=agent_commands,
                 )
             )
 
-        return agents
+        return parallel_agents
 
     raise FlowValidationError(f"Unsupported Flow node type: {type(node).__name__}")
 
