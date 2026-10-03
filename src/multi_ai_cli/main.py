@@ -27,6 +27,264 @@ if TYPE_CHECKING:
 # Valid values for the --mode flag
 _VALID_MODES = {"repl", "filter"}
 
+# ==============================================================================
+# Workspace initialization
+# ==============================================================================
+
+_DEFAULT_INI_CONTENT = """\
+[API_KEYS]
+# API keys may also be provided via environment variables.
+# Environment variables should override these values when present.
+GEMINI_API_KEY =
+OPENAI_API_KEY =
+anthropic_api_key =
+grok_api_key =
+
+# ==============================================================================
+# Runtime
+# ==============================================================================
+#
+# Global application/runtime behavior.
+# These values are independent of individual Agent definitions.
+# ==============================================================================
+
+[RUNTIME]
+
+# Maximum number of conversation turns
+# (user + assistant pairs) retained by each Agent instance.
+max_history_turns = 30
+
+# Auto-continue behavior for responses that hit an output limit.
+auto_continue_max_rounds = 5
+auto_continue_tail_chars = 1200
+
+# ==============================================================================
+# Agents
+# ==============================================================================
+#
+# Agent names are logical aliases.
+#
+# The Agent name does NOT imply:
+#
+#   - Provider
+#   - Local / Cloud
+#   - Model
+#   - Adapter
+#
+# Required:
+#
+#   adapter
+#   server
+#   engine
+#
+# Optional:
+#
+#   api_key_ref
+#   role
+#   max_output_tokens
+#
+# Currently supported adapter:
+#
+#   openai-compatible
+#
+# Example:
+#
+#   [AGENT.reviewer]
+#   adapter = openai-compatible
+#   server = https://api.openai.com/v1
+#   engine = <model-name>
+#   api_key_ref = openai_api_key
+#   role = review
+#   max_output_tokens = 8192
+#
+# Agent aliases may contain:
+#
+#   a-z
+#   0-9
+#   _
+#   -
+#
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# OpenAI
+# ------------------------------------------------------------------------------
+
+[AGENT.gpt]
+adapter = openai-compatible
+server = https://api.openai.com/v1
+engine = gpt-5.4
+api_key_ref = openai_api_key
+max_output_tokens = 8192
+
+# ==============================================================================
+# Application Paths
+# ==============================================================================
+
+[Paths]
+
+# Folder for prompt/persona assets used by commands such as @efficient.
+work_efficient = prompts
+
+# Blackboard directory for read/write artifacts (-r / -w).
+work_data = work_data
+
+# ==============================================================================
+# Logging
+# ==============================================================================
+
+[logging]
+
+enabled = true
+log_dir = logs
+base_filename = chat.log
+max_bytes = 10485760
+backup_count = 5
+log_level = INFO
+"""
+
+
+_DEFAULT_GITIGNORE_ENTRIES = (
+    "multi_ai_cli.ini",
+    "work_data/",
+    "logs/",
+)
+
+
+def _create_file_if_missing(path: str, content: str) -> None:
+    """
+    Create a file only when it does not already exist.
+
+    Existing files are never overwritten.
+    """
+    if os.path.exists(path):
+        print(f"  skip     {path} (already exists)")
+        return
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    print(f"  created  {path}")
+
+
+def _ensure_directory(path: str) -> None:
+    """
+    Ensure that a workspace directory exists.
+    """
+    if os.path.isdir(path):
+        print(f"  skip     {path}/ (already exists)")
+        return
+
+    if os.path.exists(path):
+        print(
+            f"[!] Error: cannot create directory '{path}': "
+            f"a file with that name already exists.",
+            file=sys.stderr,
+        )
+        raise RuntimeError(f"Path conflict: {path}")
+
+    os.makedirs(path)
+    print(f"  created  {path}/")
+
+
+def _update_gitignore() -> None:
+    """
+    Create or update .gitignore with Multi-AI local/runtime files.
+
+    Existing .gitignore content is preserved.
+    Missing Multi-AI entries are appended.
+    """
+    path = ".gitignore"
+
+    if os.path.exists(path):
+        if not os.path.isfile(path):
+            raise RuntimeError("'.gitignore' exists but is not a file.")
+
+        with open(path, encoding="utf-8") as f:
+            current_content = f.read()
+
+        existing_entries = {
+            line.strip()
+            for line in current_content.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        }
+
+        missing_entries = [
+            entry
+            for entry in _DEFAULT_GITIGNORE_ENTRIES
+            if entry not in existing_entries
+        ]
+
+        if not missing_entries:
+            print("  skip     .gitignore (already configured)")
+            return
+
+        with open(path, "a", encoding="utf-8") as f:
+            if current_content and not current_content.endswith("\n"):
+                f.write("\n")
+
+            f.write("\n# Multi-AI local/runtime files\n")
+            for entry in missing_entries:
+                f.write(f"{entry}\n")
+
+        print("  updated  .gitignore")
+        return
+
+    content = (
+        "# Multi-AI local/runtime files\n"
+        + "\n".join(_DEFAULT_GITIGNORE_ENTRIES)
+        + "\n"
+    )
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    print("  created  .gitignore")
+
+
+def run_init_command() -> int:
+    """
+    Initialize a Multi-AI workspace in the current directory.
+
+    Creates:
+
+        multi_ai_cli.ini
+        .gitignore
+        prompts/
+        work_data/
+
+    Existing files are preserved and never overwritten.
+
+    Returns:
+        int: Process exit code.
+    """
+    workspace = os.getcwd()
+
+    print(f"Initializing Multi-AI workspace in:")
+    print(f"  {workspace}")
+    print()
+
+    try:
+        _create_file_if_missing(
+            "multi_ai_cli.ini",
+            _DEFAULT_INI_CONTENT,
+        )
+
+        _update_gitignore()
+
+        _ensure_directory("prompts")
+        _ensure_directory("work_data")
+
+    except (OSError, RuntimeError) as e:
+        print(f"[!] Initialization failed: {e}", file=sys.stderr)
+        return 1
+
+    print()
+    print("[✓] Multi-AI workspace initialized.")
+
+    return 0
+
 
 def _extract_mode_arg(argv: list[str]) -> tuple[str | None, list[str]]:
     remaining: list[str] = []
@@ -312,16 +570,38 @@ def main() -> None:
     """
     Main entry point for the Multi-AI CLI application.
 
-    Performs shared startup, then dispatches to the appropriate execution
-    mode based on the optional ``--mode`` flag:
+    Supported commands:
 
-    - ``--mode repl``   -> Always starts interactive REPL, regardless of TTY
-    - ``--mode filter`` -> Always runs single-shot filter mode
-    - (omitted)         -> Legacy auto-detection via ``sys.stdin.isatty()``
+    - ``multi-ai init``   -> Initialize a Multi-AI workspace
+
+    Runtime modes:
+
+    - ``--mode repl``     -> Always starts interactive REPL, regardless of TTY
+    - ``--mode filter``   -> Always runs single-shot filter mode
+    - (omitted)           -> Legacy auto-detection via ``sys.stdin.isatty()``
 
     Explicit ``--mode`` selection overrides TTY-based auto-detection.
     """
     raw_argv = sys.argv[1:]
+
+    # ---------------------------------------------------------
+    # Workspace commands
+    #
+    # init must run before startup(), because startup() requires
+    # multi_ai_cli.ini to already exist.
+    # ---------------------------------------------------------
+
+    if raw_argv and raw_argv[0].lower() == "init":
+        if len(raw_argv) != 1:
+            print("[!] Usage: multi-ai init", file=sys.stderr)
+            sys.exit(2)
+
+        sys.exit(run_init_command())
+
+    # ---------------------------------------------------------
+    # Normal runtime startup
+    # ---------------------------------------------------------
+
     mode, remaining_argv = _extract_mode_arg(raw_argv)
 
     startup()
@@ -329,15 +609,16 @@ def main() -> None:
 
     if mode == "repl":
         code = run_interactive_mode()
+
     elif mode == "filter":
         from .filter_mode import run_filter_mode
 
         code = run_filter_mode(remaining_argv)
+
     else:
         code = _run_legacy_auto_detection(raw_argv)
 
     sys.exit(code)
-
 
 if __name__ == "__main__":
     main()
