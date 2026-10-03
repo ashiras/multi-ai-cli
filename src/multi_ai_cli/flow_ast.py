@@ -8,7 +8,6 @@ It does not perform parsing, validation, or execution.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TypeAlias
 
 
 @dataclass(slots=True)
@@ -17,7 +16,6 @@ class CommandNode:
     A single executable Multi-AI command.
 
     Example:
-
         @gpt hello!
     """
 
@@ -30,11 +28,10 @@ class SequenceNode:
     A sequence of nodes executed from left to right.
 
     Example:
-
         @gpt -> @gemini -> @claude
     """
 
-    children: list["FlowNode"] = field(default_factory=list)
+    children: list[FlowNode] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -46,7 +43,6 @@ class ParallelNode:
     or another ParallelNode.
 
     Example:
-
         [ @gpt || @gemini ]
 
         [
@@ -56,7 +52,7 @@ class ParallelNode:
         ]
     """
 
-    branches: list["FlowNode"] = field(default_factory=list)
+    branches: list[FlowNode] = field(default_factory=list)
 
 
-FlowNode: TypeAlias = CommandNode | SequenceNode | ParallelNode
+type FlowNode = CommandNode | SequenceNode | ParallelNode

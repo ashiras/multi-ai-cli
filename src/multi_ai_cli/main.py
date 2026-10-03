@@ -261,7 +261,7 @@ def run_init_command() -> int:
     """
     workspace = os.getcwd()
 
-    print(f"Initializing Multi-AI workspace in:")
+    print("Initializing Multi-AI workspace in:")
     print(f"  {workspace}")
     print()
 
@@ -619,6 +619,7 @@ def main() -> None:
         code = _run_legacy_auto_detection(raw_argv)
 
     sys.exit(code)
+
 
 if __name__ == "__main__":
     main()

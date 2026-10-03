@@ -74,7 +74,6 @@ def _validate_node(
     """
     Recursively validate one AST node.
     """
-
     if isinstance(node, CommandNode):
         _validate_command(
             node,
@@ -101,9 +100,7 @@ def _validate_node(
         )
         return
 
-    raise FlowValidationError(
-        f"Unsupported Flow node type: {type(node).__name__}"
-    )
+    raise FlowValidationError(f"Unsupported Flow node type: {type(node).__name__}")
 
 
 def _validate_command(
@@ -116,22 +113,16 @@ def _validate_command(
     Validate a CommandNode.
     """
     if not node.tokens:
-        raise FlowValidationError(
-            "Command node contains no tokens."
-        )
+        raise FlowValidationError("Command node contains no tokens.")
 
     command = node.tokens[0]
     command_key = _normalize_command_key(command)
 
     if command_key not in valid_commands:
-        raise FlowValidationError(
-            f"Unknown command: @{command_key}"
-        )
+        raise FlowValidationError(f"Unknown command: @{command_key}")
 
     if inside_parallel and command_key == "pause":
-        raise FlowValidationError(
-            "@pause cannot be used inside a parallel block."
-        )
+        raise FlowValidationError("@pause cannot be used inside a parallel block.")
 
 
 def _validate_parallel(
@@ -149,9 +140,7 @@ def _validate_parallel(
     Agent aliases may not overlap between sibling branches.
     """
     if len(node.branches) < 2:
-        raise FlowValidationError(
-            "Parallel block requires at least two branches."
-        )
+        raise FlowValidationError("Parallel block requires at least two branches.")
 
     # First validate each branch recursively.
     #
@@ -183,16 +172,10 @@ def _validate_parallel(
             left_index + 1,
             len(branch_agents),
         ):
-            duplicates = (
-                branch_agents[left_index]
-                & branch_agents[right_index]
-            )
+            duplicates = branch_agents[left_index] & branch_agents[right_index]
 
             if duplicates:
-                duplicate_list = ", ".join(
-                    f"@{name}"
-                    for name in sorted(duplicates)
-                )
+                duplicate_list = ", ".join(f"@{name}" for name in sorted(duplicates))
 
                 raise FlowValidationError(
                     "Parallel branches contain duplicate "
@@ -211,14 +194,11 @@ def _collect_agent_keys(
     Built-in commands such as @pause, @sh, @efficient, etc.
     are intentionally excluded.
     """
-
     if isinstance(node, CommandNode):
         if not node.tokens:
             return set()
 
-        command_key = _normalize_command_key(
-            node.tokens[0]
-        )
+        command_key = _normalize_command_key(node.tokens[0])
 
         if command_key in agent_commands:
             return {command_key}
@@ -251,9 +231,7 @@ def _collect_agent_keys(
 
         return agents
 
-    raise FlowValidationError(
-        f"Unsupported Flow node type: {type(node).__name__}"
-    )
+    raise FlowValidationError(f"Unsupported Flow node type: {type(node).__name__}")
 
 
 def _normalize_command_key(command: str) -> str:

@@ -1,5 +1,3 @@
-import pytest
-
 import multi_ai_cli.handlers as handlers
 from multi_ai_cli.flow_parser import FlowSyntaxError
 from multi_ai_cli.flow_validator import FlowValidationError
@@ -126,9 +124,7 @@ def test_handle_sequence_returns_false_on_validation_error(
     )
 
     def fail_validation(_ast):
-        raise FlowValidationError(
-            "duplicate Agent"
-        )
+        raise FlowValidationError("duplicate Agent")
 
     monkeypatch.setattr(
         handlers,

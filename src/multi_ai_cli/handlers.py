@@ -15,6 +15,10 @@ from .adapters.shell import ShellAdapter
 from .adapters.shell.adapter import ShellCommandBuildError
 from .adapters.shell.models import ShellResult
 from .config import config, logger
+from .flow_context import get_flow_execution_context
+from .flow_executor import execute_flow
+from .flow_parser import FlowSyntaxError, parse_flow
+from .flow_validator import FlowValidationError, validate_flow
 from .parsers import (
     ParsedInput,
     ParsedShInput,
@@ -30,10 +34,6 @@ from .utils import (
     safe_print,
     secure_resolve_path,
 )
-
-from .flow_executor import execute_flow
-from .flow_parser import FlowSyntaxError, parse_flow
-from .flow_validator import FlowValidationError, validate_flow
 
 if TYPE_CHECKING:
     from .session import AgentSession
@@ -281,14 +281,31 @@ def handle_ai_interaction(parts: list[str], session: "AgentSession") -> bool:
         safe_print(f"[!] {e}")
         return False
 
+    flow_context = get_flow_execution_context()
+
+    branch_label = flow_context.branch_label
+
+    if branch_label:
+        thinking_prefix = f"[{branch_label}]"
+        response_header = f"--- [{branch_label}] {engine.name} ---"
+    else:
+        thinking_prefix = "[*]"
+        response_header = f"--- {engine.name} ---"
+
     if not prompt_main.strip():
         safe_print("[!] No prompt to send. Provide text, use -e, -m, or -r.")
         return False
 
     logger.info(f"@User ({engine.name}): {prompt_main}")
+
     with _console_lock:
-        print(f"[*] {engine.name} is thinking...", end="\r", flush=True)
-    logger.info(f"[*] {engine.name} is thinking...")
+        print(
+            f"{thinking_prefix} {engine.name} is thinking...",
+            end="\r",
+            flush=True,
+        )
+
+    logger.info(f"{thinking_prefix} {engine.name} is thinking...")
 
     try:
         result = engine.call(prompt_main)
@@ -315,7 +332,7 @@ def handle_ai_interaction(parts: list[str], session: "AgentSession") -> bool:
             )
             logger.info(f"[*] File written: '{parsed.write_file}' (mode: {mode_label})")
         else:
-            safe_print(f"\n--- {engine.name} ---\n{result}\n")
+            safe_print(f"\n{response_header}\n{result}\n")
 
         return True
 
@@ -474,15 +491,10 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
     """
     args = parts[1:]
 
-    has_edit = any(
-        token in ("-e", "--edit")
-        for token in args
-    )
+    has_edit = any(token in ("-e", "--edit") for token in args)
 
     file_flag_indexes = [
-        index
-        for index, token in enumerate(args)
-        if token in ("-f", "--file")
+        index for index, token in enumerate(args) if token in ("-f", "--file")
     ]
 
     # =========================================================
@@ -490,10 +502,7 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
     # =========================================================
 
     if has_edit and file_flag_indexes:
-        print(
-            "[!] @sequence: "
-            "-e/--edit and -f/--file cannot be used together."
-        )
+        print("[!] @sequence: -e/--edit and -f/--file cannot be used together.")
         print("[!] Usage:")
         print("    @sequence -e")
         print("    @sequence -f <file>")
@@ -510,9 +519,7 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
             print("[!] Usage: @sequence -e")
             return False
 
-        logger.info(
-            "[*] @sequence: Opening editor for Flow input."
-        )
+        logger.info("[*] @sequence: Opening editor for Flow input.")
 
         flow_content = open_editor_for_prompt()
 
@@ -525,28 +532,18 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
 
     elif file_flag_indexes:
         if len(file_flag_indexes) > 1:
-            print(
-                "[!] @sequence: "
-                "-f/--file specified more than once."
-            )
+            print("[!] @sequence: -f/--file specified more than once.")
             return False
 
         file_flag_index = file_flag_indexes[0]
 
         if file_flag_index + 1 >= len(args):
-            print(
-                "[!] @sequence: "
-                "-f/--file requires a filename."
-            )
-            print(
-                "[!] Usage: @sequence -f <file>"
-            )
+            print("[!] @sequence: -f/--file requires a filename.")
+            print("[!] Usage: @sequence -f <file>")
             return False
 
         if len(args) != 2:
-            print(
-                "[!] Usage: @sequence -f <file>"
-            )
+            print("[!] Usage: @sequence -f <file>")
             return False
 
         filename = args[file_flag_index + 1]
@@ -564,22 +561,12 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
             ) as f:
                 flow_content = f.read()
 
-            logger.info(
-                "[*] @sequence: "
-                f"Loaded Flow from '{filename}'."
-            )
+            logger.info(f"[*] @sequence: Loaded Flow from '{filename}'.")
 
         except Exception as exc:
-            print(
-                "[!] @sequence: "
-                f"Failed to load sequence file "
-                f"'{filename}': {exc}"
-            )
+            print(f"[!] @sequence: Failed to load sequence file '{filename}': {exc}")
 
-            logger.error(
-                "@sequence file load failed "
-                f"for '{filename}': {exc}"
-            )
+            logger.error(f"@sequence file load failed for '{filename}': {exc}")
 
             return False
 
@@ -598,18 +585,12 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
     # =========================================================
 
     try:
-        flow_ast = parse_flow(
-            flow_content
-        )
+        flow_ast = parse_flow(flow_content)
 
     except FlowSyntaxError as exc:
-        print(
-            f"[!] Sequence syntax error: {exc}"
-        )
+        print(f"[!] Sequence syntax error: {exc}")
 
-        logger.error(
-            f"@sequence syntax error: {exc}"
-        )
+        logger.error(f"@sequence syntax error: {exc}")
 
         return False
 
@@ -618,18 +599,12 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
     # =========================================================
 
     try:
-        validate_flow(
-            flow_ast
-        )
+        validate_flow(flow_ast)
 
     except FlowValidationError as exc:
-        print(
-            f"[!] Sequence validation error: {exc}"
-        )
+        print(f"[!] Sequence validation error: {exc}")
 
-        logger.error(
-            f"@sequence validation error: {exc}"
-        )
+        logger.error(f"@sequence validation error: {exc}")
 
         return False
 
@@ -637,15 +612,10 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
     # Execute
     # =========================================================
 
-    print(
-        "[*] Sequence Execution started."
-    )
+    print("[*] Sequence Execution started.")
     print("=" * 50)
 
-    logger.info(
-        "[*] @sequence: "
-        "Starting AST Flow execution."
-    )
+    logger.info("[*] @sequence: Starting AST Flow execution.")
 
     success = execute_flow(
         flow_ast,
@@ -655,23 +625,14 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
     print("=" * 50)
 
     if not success:
-        print(
-            "[!] Sequence Execution failed."
-        )
+        print("[!] Sequence Execution failed.")
 
-        logger.error(
-            "@sequence: Flow execution failed."
-        )
+        logger.error("@sequence: Flow execution failed.")
 
         return False
 
-    print(
-        "[✓] Sequence Execution complete."
-    )
+    print("[✓] Sequence Execution complete.")
 
-    logger.info(
-        "[*] @sequence: "
-        "Flow execution completed successfully."
-    )
+    logger.info("[*] @sequence: Flow execution completed successfully.")
 
     return True

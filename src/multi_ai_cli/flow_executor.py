@@ -1,40 +1,32 @@
 """
 Recursive executor for the Multi-AI Sequence DSL.
 
-This module executes a validated Flow AST.
-
 Execution semantics:
 
     CommandNode
         Execute one command using the current AgentSession.
 
     SequenceNode
-        Execute child nodes from left to right using the same session.
-        Stop immediately when a child fails.
+        Execute child nodes from left to right using the same session
+        and the same FlowExecutionContext.
 
     ParallelNode
         Create one independent child AgentSession per branch.
-        Execute branches concurrently.
+        Add one level to the Branch Path.
+        Execute all branches concurrently.
         Wait for all branches to finish.
-        The ParallelNode succeeds only when every branch succeeds.
 
-Important:
-
-    This executor controls execution topology only.
-
-    It does not propagate:
-        - Agent output
-        - Artifact data
-        - conversation history
-        - branch state
-
-    across fork/join boundaries.
+The executor controls execution topology only.
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    as_completed,
+)
+from typing import TYPE_CHECKING
 
 from .config import logger
 from .flow_ast import (
@@ -42,6 +34,11 @@ from .flow_ast import (
     FlowNode,
     ParallelNode,
     SequenceNode,
+)
+from .flow_context import (
+    FlowExecutionContext,
+    bind_flow_execution_context,
+    get_flow_execution_context,
 )
 
 if TYPE_CHECKING:
@@ -62,33 +59,18 @@ class FlowExecutionError(RuntimeError):
 
 def execute_flow(
     root: FlowNode,
-    session: "AgentSession",
+    session: AgentSession,
     *,
     dispatch: DispatchFunction | None = None,
 ) -> bool:
     """
     Execute a validated Flow AST.
 
-    Args:
-        root:
-            Root Flow AST node.
-
-        session:
-            Parent AgentSession used for sequential execution.
-
-        dispatch:
-            Optional command dispatcher.
-
-            Primarily useful for testing. When omitted,
-            multi_ai_cli.handlers.dispatch_command is loaded lazily.
-
-    Returns:
-        bool:
-            True when the complete Flow succeeds.
-            False when any node fails.
+    If execution starts from inside another Flow branch, the currently
+    active FlowExecutionContext is inherited.
     """
     if dispatch is None:
-        # Lazy import avoids a module-level circular dependency:
+        # Lazy import avoids:
         #
         # handlers
         #   -> flow_executor
@@ -98,18 +80,22 @@ def execute_flow(
 
         dispatch = dispatch_command
 
+    root_context = get_flow_execution_context()
+
     return execute_node(
         root,
         session,
         dispatch=dispatch,
+        context=root_context,
     )
 
 
 def execute_node(
     node: FlowNode,
-    session: "AgentSession",
+    session: AgentSession,
     *,
     dispatch: DispatchFunction,
+    context: FlowExecutionContext,
 ) -> bool:
     """
     Recursively execute one Flow AST node.
@@ -119,6 +105,7 @@ def execute_node(
             node,
             session,
             dispatch=dispatch,
+            context=context,
         )
 
     if isinstance(node, SequenceNode):
@@ -126,6 +113,7 @@ def execute_node(
             node,
             session,
             dispatch=dispatch,
+            context=context,
         )
 
     if isinstance(node, ParallelNode):
@@ -133,55 +121,58 @@ def execute_node(
             node,
             session,
             dispatch=dispatch,
+            context=context,
         )
 
-    raise FlowExecutionError(
-        f"Unsupported Flow node type: {type(node).__name__}"
-    )
+    raise FlowExecutionError(f"Unsupported Flow node type: {type(node).__name__}")
 
 
 def _execute_command(
     node: CommandNode,
-    session: "AgentSession",
+    session: AgentSession,
     *,
     dispatch: DispatchFunction,
+    context: FlowExecutionContext,
 ) -> bool:
     """
-    Execute one command using the current session.
+    Execute one command using the current session and Branch Path.
     """
-    try:
-        return bool(
-            dispatch(
-                node.tokens,
-                session,
+    with bind_flow_execution_context(context):
+        try:
+            return bool(
+                dispatch(
+                    node.tokens,
+                    session,
+                )
             )
-        )
 
-    except Exception as exc:
-        logger.error(
-            "Flow command failed: %s: %s",
-            node.tokens,
-            exc,
-        )
-        return False
+        except Exception as exc:
+            logger.error(
+                "Flow command failed: %s: %s",
+                node.tokens,
+                exc,
+            )
+            return False
 
 
 def _execute_sequence(
     node: SequenceNode,
-    session: "AgentSession",
+    session: AgentSession,
     *,
     dispatch: DispatchFunction,
+    context: FlowExecutionContext,
 ) -> bool:
     """
     Execute SequenceNode children from left to right.
 
-    The same AgentSession is reused for every child in the sequence.
+    Sequence execution does not change the Branch Path.
     """
     for child in node.children:
         success = execute_node(
             child,
             session,
             dispatch=dispatch,
+            context=context,
         )
 
         if not success:
@@ -192,60 +183,56 @@ def _execute_sequence(
 
 def _execute_parallel(
     node: ParallelNode,
-    session: "AgentSession",
+    session: AgentSession,
     *,
     dispatch: DispatchFunction,
+    context: FlowExecutionContext,
 ) -> bool:
     """
     Execute all ParallelNode branches concurrently.
 
-    Each branch receives exactly one independent child session.
+    Each branch receives:
 
-    A sequence inside one branch therefore shares the same child session:
+        - one independent child AgentSession
+        - one child FlowExecutionContext
 
-        [
-          ( @gpt -> @gemini )
-          ||
-          @grok
-        ]
+    Example:
+        root
+          |
+          +-- branch 1 -> B1
+          |
+          +-- branch 2 -> B2
 
-    becomes conceptually:
+    Nested:
 
-        child_session_1:
-            @gpt
-              ->
-            @gemini
-
-        child_session_2:
-            @grok
-
-    Nested ParallelNodes create further child sessions beneath the
-    branch session currently executing them.
+        B1
+          |
+          +-- branch 1 -> B1.1
+          |
+          +-- branch 2 -> B1.2
     """
     if not node.branches:
         return False
 
     results: dict[int, bool] = {}
 
-    with ThreadPoolExecutor(
-        max_workers=len(node.branches)
-    ) as executor:
-
-        future_to_branch: dict[object, int] = {}
+    with ThreadPoolExecutor(max_workers=len(node.branches)) as executor:
+        future_to_branch = {}
 
         for branch_index, branch in enumerate(
             node.branches,
             1,
         ):
-            # Step 7:
-            # one independent child session per Parallel branch.
             child_session = session.create_child_session()
+
+            branch_context = context.child_branch(branch_index)
 
             future = executor.submit(
                 execute_node,
                 branch,
                 child_session,
                 dispatch=dispatch,
+                context=branch_context,
             )
 
             future_to_branch[future] = branch_index
@@ -254,9 +241,7 @@ def _execute_parallel(
             branch_index = future_to_branch[future]
 
             try:
-                results[branch_index] = bool(
-                    future.result()
-                )
+                results[branch_index] = bool(future.result())
 
             except Exception as exc:
                 logger.error(
@@ -267,7 +252,4 @@ def _execute_parallel(
 
                 results[branch_index] = False
 
-    return (
-        len(results) == len(node.branches)
-        and all(results.values())
-    )
+    return len(results) == len(node.branches) and all(results.values())

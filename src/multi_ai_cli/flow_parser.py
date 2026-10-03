@@ -20,7 +20,6 @@ Grammar:
                  | Parallel
 
 Important:
-
     A sequence used as a parallel branch must be grouped explicitly.
 
     Valid:
@@ -60,6 +59,7 @@ class FlowSyntaxError(ValueError):
     """
 
     def __init__(self, message: str, position: int) -> None:
+        """Initialize a syntax error with its source position."""
         super().__init__(f"{message} (position {position})")
         self.position = position
 
@@ -70,6 +70,7 @@ class FlowParser:
     """
 
     def __init__(self, text: str) -> None:
+        """Initialize the parser with normalized Flow text."""
         self.text = self._normalize_input(text)
         self.pos = 0
 
@@ -95,8 +96,7 @@ class FlowParser:
 
         if not self._eof():
             raise FlowSyntaxError(
-                f"Unexpected token near "
-                f"{self.text[self.pos:self.pos + 20]!r}.",
+                f"Unexpected token near {self.text[self.pos : self.pos + 20]!r}.",
                 self.pos,
             )
 
@@ -108,11 +108,9 @@ class FlowParser:
 
     def _parse_sequence(self) -> SequenceNode:
         """
-        Sequence ::= Node ("->" Node)*
+        Parse ``Sequence ::= Node ("->" Node)*``.
         """
-        children: list[FlowNode] = [
-            self._parse_node()
-        ]
+        children: list[FlowNode] = [self._parse_node()]
 
         while True:
             self._skip_whitespace()
@@ -134,15 +132,13 @@ class FlowParser:
                     self.pos,
                 )
 
-            children.append(
-                self._parse_node()
-            )
+            children.append(self._parse_node())
 
         return SequenceNode(children=children)
 
     def _parse_node(self) -> FlowNode:
         """
-        Node ::= Command | Group | Parallel
+        Parse ``Node ::= Command | Group | Parallel``.
         """
         self._skip_whitespace()
 
@@ -186,7 +182,7 @@ class FlowParser:
 
     def _parse_group(self) -> SequenceNode:
         """
-        Group ::= "(" Sequence ")"
+        Parse ``Group ::= "(" Sequence ")"``.
         """
         self._consume("(")
         self._skip_whitespace()
@@ -213,7 +209,7 @@ class FlowParser:
 
     def _parse_parallel(self) -> ParallelNode:
         """
-        Parallel ::= "[" Branch ("||" Branch)+ "]"
+        Parse ``Parallel ::= "[" Branch ("||" Branch)+ "]"``.
 
         A bare sequence is intentionally not accepted as a branch.
 
@@ -245,8 +241,7 @@ class FlowParser:
             # Sequence inside a parallel branch must be explicit.
             if self._starts_with("->"):
                 raise FlowSyntaxError(
-                    "Sequence branches inside '[...]' must "
-                    "be grouped with '(...)'.",
+                    "Sequence branches inside '[...]' must be grouped with '(...)'.",
                     self.pos,
                 )
 
@@ -254,11 +249,7 @@ class FlowParser:
                 self.pos += 2
                 self._skip_whitespace()
 
-                if (
-                    self._eof()
-                    or self._current_is("]")
-                    or self._starts_with("||")
-                ):
+                if self._eof() or self._current_is("]") or self._starts_with("||"):
                     raise FlowSyntaxError(
                         "Expected a branch after '||'.",
                         self.pos,
@@ -327,7 +318,7 @@ class FlowParser:
                 start,
             )
 
-        raw_command = self.text[start:self.pos].strip()
+        raw_command = self.text[start : self.pos].strip()
 
         if not raw_command:
             raise FlowSyntaxError(
@@ -388,10 +379,7 @@ class FlowParser:
     # ------------------------------------------------------------------
 
     def _skip_whitespace(self) -> None:
-        while (
-            not self._eof()
-            and self._current().isspace()
-        ):
+        while not self._eof() and self._current().isspace():
             self.pos += 1
 
     def _consume(self, token: str) -> None:

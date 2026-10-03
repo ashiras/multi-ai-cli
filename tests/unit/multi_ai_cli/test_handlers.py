@@ -143,10 +143,21 @@ class TestDispatchCommand:
             mock_eff.assert_called_once()
 
     def test_sequence_command(self):
-        with patch("multi_ai_cli.handlers.handle_sequence") as mock_seq:
-            result = dispatch_command(["@sequence", "-e"], self.session)
+        with patch(
+            "multi_ai_cli.handlers.handle_sequence",
+            return_value=True,
+        ) as mock_seq:
+            result = dispatch_command(
+                ["@sequence", "-e"],
+                self.session,
+            )
+
             assert result is True
-            mock_seq.assert_called_once()
+
+            mock_seq.assert_called_once_with(
+                ["@sequence", "-e"],
+                self.session,
+            )
 
 
 class TestHandleScrub:

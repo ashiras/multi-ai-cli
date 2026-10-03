@@ -8,7 +8,6 @@ from multi_ai_cli.flow_validator import (
 )
 from multi_ai_cli.parsers import BUILTIN_COMMANDS
 
-
 AGENTS = {
     "gpt",
     "gemini",
@@ -21,7 +20,6 @@ VALID_COMMANDS = BUILTIN_COMMANDS | AGENTS
 
 
 class FlowValidatorTest(unittest.TestCase):
-
     def validate(self, text: str) -> None:
         ast = parse_flow(text)
 
@@ -53,32 +51,20 @@ class FlowValidatorTest(unittest.TestCase):
     # ---------------------------------------------------------
 
     def test_simple_sequence_is_valid(self) -> None:
-        self.validate(
-            "@gpt -> @gemini -> @claude"
-        )
+        self.validate("@gpt -> @gemini -> @claude")
 
     def test_same_agent_sequential_reuse_is_valid(self) -> None:
-        self.validate(
-            "@gpt -> @gemini -> @gpt"
-        )
+        self.validate("@gpt -> @gemini -> @gpt")
 
     def test_simple_parallel_with_distinct_agents_is_valid(
         self,
     ) -> None:
-        self.validate(
-            "[ @gpt || @gemini ]"
-        )
+        self.validate("[ @gpt || @gemini ]")
 
     def test_sequence_branches_with_distinct_agents_are_valid(
         self,
     ) -> None:
-        self.validate(
-            "[ "
-            "( @gpt -> @gemini ) "
-            "|| "
-            "( @grok -> @local ) "
-            "]"
-        )
+        self.validate("[ ( @gpt -> @gemini ) || ( @grok -> @local ) ]")
 
     def test_agent_can_be_reused_after_parallel_join(
         self,
@@ -111,9 +97,7 @@ class FlowValidatorTest(unittest.TestCase):
     def test_same_builtin_command_in_parallel_is_valid(
         self,
     ) -> None:
-        self.validate(
-            '[ @sh "echo one" || @sh "echo two" ]'
-        )
+        self.validate('[ @sh "echo one" || @sh "echo two" ]')
 
     # ---------------------------------------------------------
     # Unknown commands

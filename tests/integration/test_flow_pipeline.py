@@ -11,7 +11,6 @@ from multi_ai_cli.flow_validator import (
 )
 from multi_ai_cli.parsers import BUILTIN_COMMANDS
 
-
 AGENTS = {
     "gpt",
     "gemini",
@@ -20,14 +19,10 @@ AGENTS = {
     "local",
 }
 
-VALID_COMMANDS = (
-    BUILTIN_COMMANDS
-    | AGENTS
-)
+VALID_COMMANDS = BUILTIN_COMMANDS | AGENTS
 
 
 class FakeSession:
-
     def __init__(
         self,
         name: str = "root",
@@ -42,26 +37,19 @@ class FakeSession:
         with self._lock:
             self._child_count += 1
 
-            child_number = (
-                self._child_count
-            )
+            child_number = self._child_count
 
-        return FakeSession(
-            f"{self.name}.{child_number}"
-        )
+        return FakeSession(f"{self.name}.{child_number}")
 
 
 class RecordingDispatcher:
-
     def __init__(
         self,
         failures: set[str] | None = None,
     ) -> None:
         self.failures = failures or set()
 
-        self.calls: list[
-            tuple[tuple[str, ...], str]
-        ] = []
+        self.calls: list[tuple[tuple[str, ...], str]] = []
 
         self._lock = threading.Lock()
 
@@ -79,10 +67,7 @@ class RecordingDispatcher:
                 )
             )
 
-        return (
-            tokens[0]
-            not in self.failures
-        )
+        return tokens[0] not in self.failures
 
 
 def prepare_flow(text: str):
@@ -368,9 +353,7 @@ def test_pause_after_join_is_valid_and_sequential() -> None:
     ]
 
     # @pauseはjoin後でなければならない。
-    assert pause_index > max(
-        branch_indexes
-    )
+    assert pause_index > max(branch_indexes)
 
     # そしてpause後に最後のGPT。
     assert final_index > pause_index
@@ -391,9 +374,7 @@ def test_parallel_failure_prevents_following_sequence() -> None:
 
     session = FakeSession()
 
-    dispatch = RecordingDispatcher(
-        failures={"@gemini"}
-    )
+    dispatch = RecordingDispatcher(failures={"@gemini"})
 
     result = execute_flow(
         ast,
@@ -403,11 +384,7 @@ def test_parallel_failure_prevents_following_sequence() -> None:
 
     assert result is False
 
-    commands = [
-        tokens[0]
-        for tokens, _session
-        in dispatch.calls
-    ]
+    commands = [tokens[0] for tokens, _session in dispatch.calls]
 
     assert "@gpt" in commands
     assert "@gemini" in commands

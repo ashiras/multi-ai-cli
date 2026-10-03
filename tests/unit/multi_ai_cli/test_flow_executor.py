@@ -30,9 +30,7 @@ class FakeSession:
             self._child_count += 1
             child_number = self._child_count
 
-        return FakeSession(
-            f"{self.name}.{child_number}"
-        )
+        return FakeSession(f"{self.name}.{child_number}")
 
 
 class RecordingDispatcher:
@@ -45,9 +43,7 @@ class RecordingDispatcher:
         failures: set[str] | None = None,
     ) -> None:
         self.failures = failures or set()
-        self.calls: list[
-            tuple[tuple[str, ...], str]
-        ] = []
+        self.calls: list[tuple[tuple[str, ...], str]] = []
         self._lock = threading.Lock()
 
     def __call__(
@@ -70,9 +66,7 @@ class RecordingDispatcher:
 
 
 def test_sequence_reuses_parent_session() -> None:
-    ast = parse_flow(
-        "@gpt -> @gemini -> @claude"
-    )
+    ast = parse_flow("@gpt -> @gemini -> @claude")
 
     session = FakeSession()
     dispatch = RecordingDispatcher()
@@ -93,15 +87,11 @@ def test_sequence_reuses_parent_session() -> None:
 
 
 def test_sequence_stops_on_failure() -> None:
-    ast = parse_flow(
-        "@gpt -> @gemini -> @claude"
-    )
+    ast = parse_flow("@gpt -> @gemini -> @claude")
 
     session = FakeSession()
 
-    dispatch = RecordingDispatcher(
-        failures={"@gemini"}
-    )
+    dispatch = RecordingDispatcher(failures={"@gemini"})
 
     result = execute_flow(
         ast,
@@ -118,9 +108,7 @@ def test_sequence_stops_on_failure() -> None:
 
 
 def test_parallel_uses_one_child_session_per_branch() -> None:
-    ast = parse_flow(
-        "[ @gpt || @gemini ]"
-    )
+    ast = parse_flow("[ @gpt || @gemini ]")
 
     session = FakeSession()
     dispatch = RecordingDispatcher()
@@ -142,13 +130,7 @@ def test_parallel_uses_one_child_session_per_branch() -> None:
 
 
 def test_sequence_branch_reuses_same_child_session() -> None:
-    ast = parse_flow(
-        "[ "
-        "( @gpt -> @gemini ) "
-        "|| "
-        "@grok "
-        "]"
-    )
+    ast = parse_flow("[ ( @gpt -> @gemini ) || @grok ]")
 
     session = FakeSession()
     dispatch = RecordingDispatcher()
@@ -180,15 +162,7 @@ def test_sequence_branch_reuses_same_child_session() -> None:
 
 
 def test_join_continues_on_parent_session() -> None:
-    ast = parse_flow(
-        "[ "
-        "( @gpt -> @gemini ) "
-        "|| "
-        "@grok "
-        "] "
-        "-> "
-        "@claude"
-    )
+    ast = parse_flow("[ ( @gpt -> @gemini ) || @grok ] -> @claude")
 
     session = FakeSession()
     dispatch = RecordingDispatcher()
@@ -292,9 +266,7 @@ def test_parallel_failure_stops_sequence_after_join() -> None:
 
     session = FakeSession()
 
-    dispatch = RecordingDispatcher(
-        failures={"@gemini"}
-    )
+    dispatch = RecordingDispatcher(failures={"@gemini"})
 
     result = execute_flow(
         ast,
@@ -304,14 +276,94 @@ def test_parallel_failure_stops_sequence_after_join() -> None:
 
     assert result is False
 
-    commands = {
-        tokens[0]
-        for tokens, _session_name
-        in dispatch.calls
-    }
+    commands = {tokens[0] for tokens, _session_name in dispatch.calls}
 
     assert "@gpt" in commands
     assert "@gemini" in commands
 
     # Join failed, so the following sequential node must not run.
     assert "@claude" not in commands
+
+
+def test_branch_path_tracks_nested_parallel_and_join() -> None:
+    from multi_ai_cli.flow_context import (
+        get_flow_execution_context,
+    )
+
+    ast = parse_flow(
+        """
+        [
+          (
+            @gpt outer-b1
+            ->
+            [
+              @gemini nested-b1
+              ||
+              @claude nested-b2
+            ]
+            ->
+            @local after-nested
+          )
+          ||
+          @grok outer-b2
+        ]
+        ->
+        @gpt after-outer
+        """
+    )
+
+    session = FakeSession()
+
+    calls = []
+    lock = threading.Lock()
+
+    def dispatch(
+        tokens,
+        _session,
+    ):
+        context = get_flow_execution_context()
+
+        with lock:
+            calls.append(
+                (
+                    tuple(tokens),
+                    context.branch_label,
+                )
+            )
+
+        return True
+
+    result = execute_flow(
+        ast,
+        session,
+        dispatch=dispatch,
+    )
+
+    assert result is True
+
+    assert set(calls) == {
+        (
+            ("@gpt", "outer-b1"),
+            "B1",
+        ),
+        (
+            ("@gemini", "nested-b1"),
+            "B1.1",
+        ),
+        (
+            ("@claude", "nested-b2"),
+            "B1.2",
+        ),
+        (
+            ("@local", "after-nested"),
+            "B1",
+        ),
+        (
+            ("@grok", "outer-b2"),
+            "B2",
+        ),
+        (
+            ("@gpt", "after-outer"),
+            None,
+        ),
+    }
