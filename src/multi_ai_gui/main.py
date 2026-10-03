@@ -59,6 +59,8 @@ os.makedirs(WORK_DATA_DIR, exist_ok=True)
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
+PAUSE_PROMPT = "[*] Press Enter to continue, or type 'q' to abort:"
+
 
 # =================================================================
 # 2. VS Code-like style sheet
@@ -283,6 +285,7 @@ class MainWindow(QMainWindow):
 
         self.process: QProcess | None = None
         self._stdout_buffer = ""
+        self._pause_waiting = False
 
         self._build_ui()
         self._start_repl_session()
@@ -376,6 +379,16 @@ class MainWindow(QMainWindow):
         mid_bot_label = QLabel("TERMINAL")
         mid_bot_header.addWidget(mid_bot_label)
         mid_bot_header.addStretch()
+
+        self.btn_continue = QPushButton("Continue")
+        self.btn_continue.setEnabled(False)
+        self.btn_continue.clicked.connect(self._on_continue_pause)
+        mid_bot_header.addWidget(self.btn_continue)
+
+        self.btn_abort = QPushButton("Abort")
+        self.btn_abort.setEnabled(False)
+        self.btn_abort.clicked.connect(self._on_abort_pause)
+        mid_bot_header.addWidget(self.btn_abort)
 
         self.btn_clear = QPushButton("Clear")
         self.btn_clear.clicked.connect(self._on_clear)
@@ -479,6 +492,24 @@ class MainWindow(QMainWindow):
         self.repl_status_label.setStyleSheet(
             f"color: {color}; font-family: 'Segoe UI'; font-size: 10pt; font-weight: bold;"
         )
+
+    def _set_pause_waiting(self, waiting: bool) -> None:
+        """Update GUI controls for the REPL @pause waiting state."""
+        self._pause_waiting = waiting
+        self.btn_continue.setEnabled(waiting)
+        self.btn_abort.setEnabled(waiting)
+
+        process_running = (
+            self.process is not None
+            and self.process.state() == QProcess.Running
+        )
+        self.btn_send.setEnabled(process_running and not waiting)
+        self.btn_run_sequence.setEnabled(process_running and not waiting)
+
+        if waiting:
+            self._set_repl_status("Paused", "#dcdcaa")
+        elif process_running:
+            self._set_repl_status("Running", "#4ec9b0")
 
     def _set_editing_seq_label(self) -> None:
         if self.current_seq_file:
@@ -863,6 +894,9 @@ class MainWindow(QMainWindow):
         self.process.started.connect(self._on_process_started)
 
         self._stdout_buffer = ""
+        self._pause_waiting = False
+        self.btn_continue.setEnabled(False)
+        self.btn_abort.setEnabled(False)
         self._set_repl_status("Starting...", "#dcdcaa")
         self.btn_send.setEnabled(False)
         self.btn_run_sequence.setEnabled(False)
@@ -882,8 +916,7 @@ class MainWindow(QMainWindow):
 
     def _on_process_started(self) -> None:
         self._set_repl_status("Running", "#4ec9b0")
-        self.btn_send.setEnabled(True)
-        self.btn_run_sequence.setEnabled(True)
+        self._set_pause_waiting(False)
         self.btn_restart_repl.setEnabled(True)
         self.log_view.appendPlainText("[INFO] REPL process started.")
 
@@ -895,6 +928,9 @@ class MainWindow(QMainWindow):
         text = bytes(data).decode("utf-8", errors="replace")
         text = strip_ansi(text)
         self._stdout_buffer += text
+
+        if PAUSE_PROMPT in self._stdout_buffer and not self._pause_waiting:
+            self._set_pause_waiting(True)
 
         while "\n" in self._stdout_buffer:
             line, self._stdout_buffer = self._stdout_buffer.split("\n", 1)
@@ -913,6 +949,9 @@ class MainWindow(QMainWindow):
             self.log_view.appendPlainText(self._stdout_buffer.rstrip("\r"))
             self._stdout_buffer = ""
 
+        self._pause_waiting = False
+        self.btn_continue.setEnabled(False)
+        self.btn_abort.setEnabled(False)
         self.btn_send.setEnabled(False)
         self.btn_run_sequence.setEnabled(False)
         self.btn_restart_repl.setEnabled(True)
@@ -932,6 +971,9 @@ class MainWindow(QMainWindow):
 
     def _on_process_error(self, error: QProcess.ProcessError) -> None:
         self._set_repl_status("Error", "#f48771")
+        self._pause_waiting = False
+        self.btn_continue.setEnabled(False)
+        self.btn_abort.setEnabled(False)
         self.btn_send.setEnabled(False)
         self.btn_run_sequence.setEnabled(False)
         self.btn_restart_repl.setEnabled(True)
@@ -1037,6 +1079,30 @@ class MainWindow(QMainWindow):
 
         command = self._build_sequence_run_command(saved_path)
         self._send_command_to_repl(command)
+
+    def _on_continue_pause(self) -> None:
+        """Continue a Flow that is waiting at @pause."""
+        if (
+            not self._pause_waiting
+            or not self.process
+            or self.process.state() != QProcess.Running
+        ):
+            return
+
+        self.process.write(b"\n")
+        self._set_pause_waiting(False)
+
+    def _on_abort_pause(self) -> None:
+        """Abort a Flow that is waiting at @pause."""
+        if (
+            not self._pause_waiting
+            or not self.process
+            or self.process.state() != QProcess.Running
+        ):
+            return
+
+        self.process.write(b"q\n")
+        self._set_pause_waiting(False)
 
     def _on_clear(self) -> None:
         self.log_view.clear()
