@@ -1,1 +1,15 @@
-[ @gemini hello! || @claude hello! ] -> @gpt hello! 
+[
+  (
+    @gpt hello!
+    ->
+    [ @gemini hello! || @claude hello! ]
+  )
+  ||
+  (
+    @grok hello!
+    ->
+    @local hello!
+  )
+]
+->
+@grok hello again!

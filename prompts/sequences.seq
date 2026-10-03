@@ -1,1 +1,3 @@
-[ @gpt hello! -> @gemini hello! || @grok hello! ] -> @claude hello!
+@gpt hello!
+->
+[ @gemini hello! || @claude hello! ]

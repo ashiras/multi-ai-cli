@@ -1,0 +1,5 @@
+[
+  ( @gpt hello! -> @pause hello! -> @gemini hello! )
+  ||
+  @grok hello!
+]

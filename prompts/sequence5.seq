@@ -1,1 +1,5 @@
-[ @gemini hello! || [ @claude hello! || @gpt hello! ] ]
+[
+  ( @gpt -> @gemini )
+  ||
+  ( @claude -> @gpt )
+]
