@@ -12,7 +12,7 @@ def extract_files(text: str) -> list[tuple[str, str]]:
     """
     files = []
 
-    pattern = r"###\s+`([^`]+)`\s*\n+```(?:\w+)?\n([\s\S]*?)\n```"
+    pattern = r"###\s+(?:\d+\.\s+)?`([^`]+)`.*?\n+```(?:\w+)?\n([\s\S]*?)\n```"
 
     for match in re.finditer(pattern, text):
         filepath = match.group(1).strip()

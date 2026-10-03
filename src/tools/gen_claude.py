@@ -12,12 +12,19 @@ def extract_files(text: str) -> list[tuple[str, str]]:
     """
     files = []
 
-    pattern = r"```(?:\w+)?\n#\s*([^\n]+)\n([\s\S]*?)\n```"
+    # パターン1: 従来型（コードブロック内に # path）
+    pattern1 = r"```(?:\w+)?\n#\s*([^\n]+)\n([\s\S]*?)\n```"
 
-    for match in re.finditer(pattern, text):
-        filepath = match.group(1).strip()
-        content = match.group(2)
-        files.append((filepath, content))
+    # パターン2: 新型（コードブロック直前に ## `path` または ## path）
+    pattern2 = r"##\s+`?([^\n`]+)`?\n+```(?:\w+)?\n([\s\S]*?)\n```"
+
+    for pattern in [pattern1, pattern2]:
+        for match in re.finditer(pattern, text):
+            filepath = match.group(1).strip()
+            content = match.group(2)
+            # 重複を避ける
+            if (filepath, content) not in files:
+                files.append((filepath, content))
 
     return files
 
