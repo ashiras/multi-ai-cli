@@ -1,6 +1,6 @@
 #!/bin/bash
 
 uv run pyinstaller --onefile \
-                   --name multi-ai-gui \
+                   --name portable-chat \
                    --paths src \
-                   src/run_gui.py
+                   src/run_chat.py
