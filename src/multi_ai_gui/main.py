@@ -57,6 +57,7 @@ os.makedirs(WORK_DATA_DIR, exist_ok=True)
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 PAUSE_PROMPT = "[*] Press Enter to continue, or type 'q' to abort:"
+RESULT_SAVED_MARKER = "[*] Result saved to '"
 
 
 # =================================================================
@@ -306,6 +307,7 @@ class MainWindow(QMainWindow):
         self.process: QProcess | None = None
         self._stdout_buffer = ""
         self._pause_waiting = False
+        self._last_output_had_newline = True
 
         self._build_ui()
         self._start_repl_session()
@@ -915,6 +917,7 @@ class MainWindow(QMainWindow):
 
         self._stdout_buffer = ""
         self._pause_waiting = False
+        self._last_output_had_newline = True
         self.btn_continue.setEnabled(False)
         self.btn_abort.setEnabled(False)
         self._set_repl_status("Starting...", "#dcdcaa")
@@ -950,10 +953,25 @@ class MainWindow(QMainWindow):
         data = self.process.readAllStandardOutput()
         text = bytes(data).decode("utf-8", errors="replace")
         text = self._normalize_log_text(text)
+
+        if (
+            text.startswith("[*]")
+            and not self._last_output_had_newline
+            and not self._stdout_buffer.endswith("\n")
+        ):
+            self._stdout_buffer += "\n"
+
         self._stdout_buffer += text
+        self._last_output_had_newline = text.endswith("\n")
 
         if PAUSE_PROMPT in self._stdout_buffer and not self._pause_waiting:
             self._set_pause_waiting(True)
+
+        if (
+            RESULT_SAVED_MARKER in self._stdout_buffer
+            and not self._pause_waiting
+        ):
+            self._set_repl_status("Running", "#4ec9b0")
 
         while "\n" in self._stdout_buffer:
             line, self._stdout_buffer = self._stdout_buffer.split("\n", 1)
@@ -1084,6 +1102,7 @@ class MainWindow(QMainWindow):
                 self, "REPL Not Running", "The REPL process is not running."
             )
             return
+        self._set_repl_status("Processing...", "#dcdcaa")
 
         self.log_view.appendPlainText(command)
         self.log_view.appendPlainText("")

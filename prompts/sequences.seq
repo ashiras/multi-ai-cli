@@ -1,3 +1,5 @@
 @gpt hello!
 ->
 [ @gemini hello! || @claude hello! ]
+->
+@gpt hello! -w test2.tmp

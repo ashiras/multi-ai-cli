@@ -1,0 +1,6 @@
+@gpt -m "コーディングが出来るように分割ファイル単位でメソッドの仕様とメソッドのコメントを英文で書いてください。中身の実装はまだ必要ありません。" -r main.py -r spec.md -w interface.md
+-> [
+@claude -m "インターフェース仕様に従ってコードを仕上げてください" -r interface.md -w code.md ||
+@grok -m "インターフェース仕様に従ってテストコードを仕上げてください" -r interface.md -w test_code.md 
+]
+-> @gemini -m "仕様に基づきコードとテストをレビューしてください" -r spec.md -r code.md  -r test_code.md  -w rewiew.md
