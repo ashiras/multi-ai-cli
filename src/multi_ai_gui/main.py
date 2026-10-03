@@ -21,10 +21,7 @@ from PySide6.QtCore import QPoint, QProcess, QProcessEnvironment, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
-    QColor,
     QFontDatabase,
-    QTextCharFormat,
-    QTextCursor,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -84,7 +81,6 @@ QPushButton {
     color: #ffffff;
     border: none;
     padding: 4px 12px;
-    font-family: 'Segoe UI';
     font-size: 10pt;
 }
 QPushButton:hover {
@@ -99,13 +95,11 @@ QPushButton:disabled {
 }
 QLabel {
     color: #858585;
-    font-family: 'Segoe UI';
     font-size: 10pt;
     font-weight: bold;
 }
 QLabel[pathLabel="true"] {
     color: #6a9955;
-    font-family: 'Segoe UI';
     font-size: 9pt;
     font-weight: normal;
     padding-left: 2px;
@@ -113,7 +107,6 @@ QLabel[pathLabel="true"] {
 }
 QLabel[editingLabel="true"] {
     color: #9cdcfe;
-    font-family: 'Segoe UI';
     font-size: 9pt;
     font-weight: normal;
     padding-left: 2px;
@@ -123,7 +116,6 @@ QTreeWidget {
     background-color: #252526;
     color: #cccccc;
     border: none;
-    font-family: 'Segoe UI';
     font-size: 10pt;
 }
 QTreeWidget::item {
@@ -518,7 +510,7 @@ class MainWindow(QMainWindow):
     def _set_repl_status(self, text: str, color: str) -> None:
         self.repl_status_label.setText(f"REPL: {text}")
         self.repl_status_label.setStyleSheet(
-            f"color: {color}; font-family: 'Segoe UI'; font-size: 10pt; font-weight: bold;"
+            f"color: {color}; font-size: 10pt; font-weight: bold;"
         )
 
     def _set_pause_waiting(self, waiting: bool) -> None:
@@ -957,7 +949,7 @@ class MainWindow(QMainWindow):
 
         data = self.process.readAllStandardOutput()
         text = bytes(data).decode("utf-8", errors="replace")
-        text = strip_ansi(text)
+        text = self._normalize_log_text(text)
         self._stdout_buffer += text
 
         if PAUSE_PROMPT in self._stdout_buffer and not self._pause_waiting:
@@ -965,7 +957,7 @@ class MainWindow(QMainWindow):
 
         while "\n" in self._stdout_buffer:
             line, self._stdout_buffer = self._stdout_buffer.split("\n", 1)
-            self.log_view.appendPlainText(line.rstrip("\r"))
+            self.log_view.appendPlainText(line)
 
         scrollbar = self.log_view.verticalScrollBar()
         if scrollbar:
@@ -1074,17 +1066,17 @@ class MainWindow(QMainWindow):
             with open(self.current_io_file, "w", encoding="utf-8") as f:
                 f.write(self.file_view.toPlainText())
 
-    def _append_command_to_log(self, command: str) -> None:
-        cursor = self.log_view.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor("#ffffff"))
-        cursor.insertText(f"% {command}\n", fmt)
-        self.log_view.setTextCursor(cursor)
+    # def _append_command_to_log(self, command: str) -> None:
+    #     cursor = self.log_view.textCursor()
+    #     cursor.movePosition(QTextCursor.End)
+    #     fmt = QTextCharFormat()
+    #     fmt.setForeground(QColor("#ffffff"))
+    #     cursor.insertText(f"% {command}\n", fmt)
+    #     self.log_view.setTextCursor(cursor)
 
-        scrollbar = self.log_view.verticalScrollBar()
-        if scrollbar:
-            scrollbar.setValue(scrollbar.maximum())
+    #     scrollbar = self.log_view.verticalScrollBar()
+    #     if scrollbar:
+    #         scrollbar.setValue(scrollbar.maximum())
 
     def _send_command_to_repl(self, command: str) -> None:
         if not self.process or self.process.state() != QProcess.Running:
@@ -1093,7 +1085,8 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self._append_command_to_log(command)
+        self.log_view.appendPlainText(command)
+        self.log_view.appendPlainText("")
         self.process.write((command + "\n").encode("utf-8"))
 
     def _on_send(self) -> None:
@@ -1158,6 +1151,25 @@ class MainWindow(QMainWindow):
                 self.process.kill()
                 self.process.waitForFinished(2000)
         event.accept()
+
+    def _normalize_log_text(self, text: str) -> str:
+        text = strip_ansi(text)
+        text = text.replace(
+            "[*] Pause:    @pause  (interactive pause in pipelines / sequences)", ""
+        )
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+        lines = text.split("\n")
+        cleaned: list[str] = []
+
+        for line in lines:
+            if line.strip() == "%":
+                continue
+            if line.startswith("% "):
+                line = line[2:]
+            cleaned.append(line)
+
+        return "\n".join(cleaned)
 
 
 # =================================================================

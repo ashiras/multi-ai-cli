@@ -1,6 +1,8 @@
 # Project-local config / packaging artifacts
 multi_ai_cli.ini
 multi-ai.spec
+multi-ai-gui.spec
+portable-chat.spec
 
 # Build artifacts
 build/
