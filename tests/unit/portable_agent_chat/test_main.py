@@ -44,7 +44,7 @@ def test_main_loop(
     mock_chat_class.assert_called_once_with("mock_agent")
 
     # Verify the command was handled.
-    mock_chat.write_last_response.assert_called_once_with("result.txt")
+    mock_chat.write_last_response.assert_called_once_with("result.txt", overwrite=False)
 
     # Verify the prompt was sent.
     mock_chat.send.assert_called_once_with("hello")

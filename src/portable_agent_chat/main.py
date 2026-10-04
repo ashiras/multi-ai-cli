@@ -20,7 +20,7 @@ from portable_agent_chat.commands import CommandType, parse_command
 
 
 class ChatCompleter(Completer):
-    """Complete colon commands and file paths after :r, :w, and :o."""
+    """Complete colon commands and file paths after :r, :w, :W, :o, and :O."""
 
     def __init__(self) -> None:
         """Initialize the command and path completer."""
@@ -35,12 +35,12 @@ class ChatCompleter(Completer):
         line = document.text_before_cursor.split("\n")[-1]
 
         if line.startswith(":") and " " not in line:
-            for cmd in (":r ", ":w ", ":o "):
+            for cmd in (":r ", ":w ", ":W ", ":o ", ":O "):
                 if cmd.startswith(line):
                     yield Completion(cmd[len(line) :], display=cmd.strip())
             return
 
-        for prefix in (":r ", ":w ", ":o "):
+        for prefix in (":r ", ":w ", ":W ", ":o ", ":O "):
             if line.startswith(prefix):
                 rest = line[len(prefix) :]
                 yield from self.paths.get_completions(
@@ -80,7 +80,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Load multi-ai configuration and register agent definitions.
     startup()
 
     try:
@@ -102,10 +101,8 @@ def main() -> None:
     while True:
         try:
             prompt = prompt_session.prompt("% ")
-
         except KeyboardInterrupt:
             continue
-
         except EOFError:
             print("bye")
             break
@@ -122,9 +119,16 @@ def main() -> None:
         if command is not None:
             if command.type is CommandType.WRITE:
                 try:
-                    size = chat.write_last_response(command.path)
+                    size = chat.write_last_response(command.path, overwrite=False)
                     print(f"wrote {command.path} ({size} bytes)")
                 except (ValueError, FileExistsError) as exc:
+                    print(f"error: {exc}")
+
+            elif command.type is CommandType.WRITE_FORCE:
+                try:
+                    size = chat.write_last_response(command.path, overwrite=True)
+                    print(f"wrote {command.path} ({size} bytes)")
+                except ValueError as exc:
                     print(f"error: {exc}")
 
             elif command.type is CommandType.READ:
@@ -141,9 +145,16 @@ def main() -> None:
 
             elif command.type is CommandType.OUTPUT:
                 try:
-                    chat.set_pending_output(command.path)
+                    chat.set_pending_output(command.path, overwrite=False)
                     print(f"queued output {command.path}")
                 except FileExistsError as exc:
+                    print(f"error: {exc}")
+
+            elif command.type is CommandType.OUTPUT_FORCE:
+                try:
+                    chat.set_pending_output(command.path, overwrite=True)
+                    print(f"queued output {command.path} (overwrite)")
+                except ValueError as exc:
                     print(f"error: {exc}")
 
             continue
@@ -170,7 +181,3 @@ def main() -> None:
         if output_path is not None:
             size = len(response.encode("utf-8"))
             print(f"wrote {output_path} ({size} bytes)")
-
-
-if __name__ == "__main__":
-    main()

@@ -8,7 +8,9 @@ class CommandType(Enum):
     """Supported colon-prefixed command types."""
 
     WRITE = "w"
+    WRITE_FORCE = "W"
     OUTPUT = "o"
+    OUTPUT_FORCE = "O"
     READ = "r"
 
 
@@ -21,23 +23,7 @@ class Command:
 
 
 def parse_command(text: str) -> Command | None:
-    """Parse a colon-prefixed command string.
-
-    Supported commands are:
-
-    - ``:w <path>`` to write the last response
-    - ``:o <path>`` to write the next response
-    - ``:r <path>`` to include a file in the next prompt
-
-    Args:
-        text: Raw user input.
-
-    Returns:
-        A parsed command if the input is a supported command, otherwise ``None``.
-
-    Raises:
-        ValueError: If a command prefix is present but the path is missing.
-    """
+    """Parse a colon-prefixed command string."""
     text = text.strip()
 
     if not text.startswith(":"):
@@ -57,8 +43,12 @@ def parse_command(text: str) -> Command | None:
     match command:
         case ":w":
             return Command(CommandType.WRITE, path)
+        case ":W":
+            return Command(CommandType.WRITE_FORCE, path)
         case ":o":
             return Command(CommandType.OUTPUT, path)
+        case ":O":
+            return Command(CommandType.OUTPUT_FORCE, path)
         case ":r":
             return Command(CommandType.READ, path)
         case _:

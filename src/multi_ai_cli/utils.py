@@ -11,6 +11,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from typing import TYPE_CHECKING, Any
@@ -198,6 +199,12 @@ def safe_print(*args: Any, **kwargs: Any) -> None:
     """Thread-safe print using global console lock."""
     with _console_lock:
         print(*args, **kwargs)
+
+
+def safe_eprint(*args: Any, **kwargs: Any) -> None:
+    """Thread-safe stderr print using global console lock."""
+    with _console_lock:
+        print(*args, file=sys.stderr, **kwargs)
 
 
 def clear_thinking_line() -> None:

@@ -31,6 +31,7 @@ from .utils import (
     clear_thinking_line,
     extract_code_block,
     open_editor_for_prompt,
+    safe_eprint,
     safe_print,
     secure_resolve_path,
 )
@@ -44,18 +45,17 @@ WRITE_MODE_CODE = "code"
 
 def handle_pause(parts: list[str]) -> bool:
     """
-    Handles the @pause control command for interactive pipeline execution.
+    Handle the @pause control command for interactive pipeline execution.
 
     Accepts only ``@pause`` with no extra arguments. Prompts the user to
     either continue the pipeline by pressing Enter or abort it by typing
     ``q``.
 
     Args:
-        parts (list[str]): Tokenized command parts.
+        parts: Tokenized command parts.
 
     Returns:
-        bool: ``True`` if the user continues, ``False`` if the command is
-        invalid, input cannot be read, or the user aborts.
+        True if the user continues, otherwise False.
     """
     if len(parts) != 1:
         print("[!] Usage: @pause")
@@ -63,11 +63,7 @@ def handle_pause(parts: list[str]) -> bool:
 
     while True:
         try:
-            answer = (
-                input("[*] Press Enter to continue, or type 'q' to abort: ")
-                .strip()
-                .lower()
-            )
+            answer = input(" ").strip().lower()
         except EOFError:
             print("[!] @pause could not read interactive input.")
             logger.error("@pause: EOF while waiting for user input")
@@ -79,19 +75,20 @@ def handle_pause(parts: list[str]) -> bool:
         if answer == "q":
             logger.info("@pause: aborted by user")
             return False
+
         print("[!] Invalid input. Press Enter to continue, or type 'q' to abort.")
 
 
 def dispatch_command(parts: list[str], session: "AgentSession") -> bool:
     """
-    Routes the parsed command tokens to the appropriate handler.
+    Route parsed command tokens to the appropriate handler.
 
     Args:
-        parts (list[str]): List of command parts to be dispatched.
-        session (AgentSession): The current agent session for instance management.
+        parts: List of command parts to dispatch.
+        session: The current agent session.
 
     Returns:
-        bool: True if command succeeded, False otherwise.
+        True if the command succeeded, otherwise False.
     """
     if not parts:
         return False
@@ -125,7 +122,6 @@ def dispatch_command(parts: list[str], session: "AgentSession") -> bool:
 
         return handle_figma_push(parts)
 
-    # GitHub adapter commands
     if cmd == "@github.repo":
         from .adapters.github.facade import handle_github_repo
 
@@ -151,14 +147,13 @@ def dispatch_command(parts: list[str], session: "AgentSession") -> bool:
 
         return handle_github_issues(parts)
 
-    # Resolve by agent key
     target_key = cmd.replace("@", "").lower()
     if session.is_valid_agent(target_key):
         return handle_ai_interaction(parts, session)
 
-    safe_print(f"[!] Unknown command: '{cmd}'")
+    safe_eprint(f"[!] Unknown command: '{cmd}'")
     available_agents = session.agent_keys()
-    safe_print(
+    safe_eprint(
         f"    Available: {', '.join('@' + k for k in sorted(available_agents))}, "
         f"@pause, @efficient, @scrub, @sequence, @sh, @figma.pull, @figma.push, "
         f"@github.repo, @github.tree, @github.file, @github.issue, @github.issues, exit"
@@ -168,13 +163,13 @@ def dispatch_command(parts: list[str], session: "AgentSession") -> bool:
 
 def handle_scrub(parts: list[str], session: "AgentSession") -> None:
     """
-    Handles @scrub / @flush command to clear agent history.
+    Handle @scrub / @flush to clear agent history.
 
-    Only affects agents that have been instantiated in the current session.
+    Only affects agents already instantiated in the current session.
 
     Args:
-        parts (list[str]): List of command parts.
-        session (AgentSession): The current agent session.
+        parts: List of command parts.
+        session: The current agent session.
     """
     target = parts[1].lower() if len(parts) > 1 else "all"
     valid_targets = set(session.agent_keys()) | {"all"}
@@ -201,11 +196,11 @@ def handle_scrub(parts: list[str], session: "AgentSession") -> None:
 
 def handle_efficient(parts: list[str], session: "AgentSession") -> None:
     """
-    Handles @efficient command to load persona files.
+    Handle @efficient command to load persona files.
 
     Args:
-        parts (list[str]): List of command parts.
-        session (AgentSession): The current agent session.
+        parts: List of command parts.
+        session: The current agent session.
     """
     if len(parts) < 2:
         print("[!] Usage: @efficient [target/all] <filename.txt>")
@@ -239,30 +234,27 @@ def handle_efficient(parts: list[str], session: "AgentSession") -> None:
             engine.load_persona(content, filename)
             print(f"[*] {engine.name} persona loaded: '{filename}'.")
     except Exception as e:
-        print(f"[!] Persona loading failed: {e}")
+        safe_eprint(f"[!] Persona loading failed: {e}")
 
 
 def handle_ai_interaction(parts: list[str], session: "AgentSession") -> bool:
     """
-    Handles interaction with a specific AI agent (@gpt.doc "prompt" ...).
+    Handle interaction with a specific AI agent.
 
-    Supports flags: -m, -r, -w[:raw|:code], -e
-
-    The parser (parse_cli_input) validates flags strictly:
-    unknown flags are rejected, missing flag values cause errors.
+    Supports flags: -m, -r, -w[:raw|:code], -e.
 
     Args:
-        parts (list[str]): List of command parts to interact with AI.
-        session (AgentSession): The current agent session.
+        parts: Command parts to interact with the AI.
+        session: The current agent session.
 
     Returns:
-        bool: True if interaction succeeded, False otherwise.
+        True if interaction succeeded, otherwise False.
     """
     target_key = parts[0].lower().replace("@", "")
     engine = session.get_agent(target_key)
 
     if not engine:
-        safe_print(f"[!] Agent '@{target_key}' not found.")
+        safe_eprint(f"[!] Agent '@{target_key}' not found.")
         return False
 
     parsed: ParsedInput | None = parse_cli_input(parts)
@@ -278,11 +270,11 @@ def handle_ai_interaction(parts: list[str], session: "AgentSession") -> bool:
     try:
         prompt_main = build_ai_prompt(parsed, editor_content)
     except Exception as e:
-        safe_print(f"[!] {e}")
+        safe_eprint(f"[!] {e}")
+        logger.error(f"AI prompt build error: {e}")
         return False
 
     flow_context = get_flow_execution_context()
-
     branch_label = flow_context.branch_label
 
     if branch_label:
@@ -293,7 +285,7 @@ def handle_ai_interaction(parts: list[str], session: "AgentSession") -> bool:
         response_header = f"--- {engine.name} ---"
 
     if not prompt_main.strip():
-        safe_print("[!] No prompt to send. Provide text, use -e, -m, or -r.")
+        safe_eprint("[!] No prompt to send. Provide text, use -e, -m, or -r.")
         return False
 
     logger.info(f"@User ({engine.name}): {prompt_main}")
@@ -338,23 +330,20 @@ def handle_ai_interaction(parts: list[str], session: "AgentSession") -> bool:
 
     except Exception as e:
         clear_thinking_line()
-        safe_print(f"[!] AI Engine Error: {e}")
+        safe_eprint(f"[!] AI Engine Error: {e}")
         logger.error(f"AI interaction error: {e}")
         return False
 
 
 def handle_sh(parts: list[str]) -> bool:
     """
-    Handles @sh command: local shell execution with artifact capture.
-
-    Delegates command building and execution to ShellAdapter.
-    This handler is responsible for all UI output (print) and logging.
+    Handle @sh command for local shell execution with artifact capture.
 
     Args:
-        parts (list[str]): List of command parts.
+        parts: List of command parts.
 
     Returns:
-        bool: True if shell command execution succeeded, False otherwise.
+        True if shell command execution succeeded, otherwise False.
     """
     parsed: ParsedShInput | None = _parse_sh_input(parts)
     if parsed is None:
@@ -368,11 +357,11 @@ def handle_sh(parts: list[str]) -> bool:
     try:
         cmd, use_shell = adapter.build_command(parsed, resolve_path_fn=_resolve_path)
     except PermissionError as e:
-        print(f"[!] @sh: {e}")
+        safe_eprint(f"[!] @sh: {e}")
         logger.error(f"@sh: Permission error: {e}")
         return False
     except ShellCommandBuildError as e:
-        print(f"[!] @sh: {e}")
+        safe_eprint(f"[!] @sh: {e}")
         logger.error(f"@sh: Build error: {e}")
         return False
 
@@ -386,15 +375,15 @@ def handle_sh(parts: list[str]) -> bool:
     try:
         shell_result: ShellResult = adapter.execute_command(cmd, use_shell)
     except FileNotFoundError as e:
-        print(f"[!] @sh: Command not found: {e}")
+        safe_eprint(f"[!] @sh: Command not found: {e}")
         logger.error(f"@sh: Command not found: {e}")
         return False
     except subprocess.TimeoutExpired:
-        print("[!] @sh: Command timed out (300s limit).")
+        safe_eprint("[!] @sh: Command timed out (300s limit).")
         logger.error(f"@sh: Timeout for '{cmd_display}'")
         return False
     except OSError as e:
-        print(f"[!] @sh: Execution error: {e}")
+        safe_eprint(f"[!] @sh: Execution error: {e}")
         logger.error(f"@sh: Execution error: {e}")
         return False
 
@@ -467,7 +456,7 @@ def handle_sh(parts: list[str]) -> bool:
             logger.info(f"@sh: Artifact written ({fmt_label})")
 
         except Exception as e:
-            print(f"[!] @sh: Error writing artifact: {e}")
+            safe_eprint(f"[!] @sh: Error writing artifact: {e}")
             logger.error(f"@sh: Artifact write error: {e}")
 
     return exit_code == 0
@@ -475,75 +464,63 @@ def handle_sh(parts: list[str]) -> bool:
 
 def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
     """
-    Handles @sequence command.
+    Handle @sequence command.
 
     Supported input modes:
 
         @sequence -e
         @sequence --edit
-
         @sequence -f <file>
         @sequence --file <file>
 
+    Args:
+        parts: List of command parts.
+        session: The current agent session.
+
     Returns:
-        True if the entire Flow completed successfully.
-        False if input, parsing, validation, or execution failed.
+        True if the entire Flow completed successfully, otherwise False.
     """
     args = parts[1:]
 
     has_edit = any(token in ("-e", "--edit") for token in args)
-
     file_flag_indexes = [
         index for index, token in enumerate(args) if token in ("-f", "--file")
     ]
 
-    # =========================================================
-    # Input mode validation
-    # =========================================================
-
     if has_edit and file_flag_indexes:
-        print("[!] @sequence: -e/--edit and -f/--file cannot be used together.")
-        print("[!] Usage:")
-        print("    @sequence -e")
-        print("    @sequence -f <file>")
+        safe_eprint("[!] @sequence: -e/--edit and -f/--file cannot be used together.")
+        safe_eprint("[!] Usage:")
+        safe_eprint("    @sequence -e")
+        safe_eprint("    @sequence -f <file>")
         return False
 
     flow_content: str | None = None
 
-    # =========================================================
-    # Editor input
-    # =========================================================
-
     if has_edit:
         if len(args) != 1:
-            print("[!] Usage: @sequence -e")
+            safe_eprint("[!] Usage: @sequence -e")
             return False
 
         logger.info("[*] @sequence: Opening editor for Flow input.")
-
         flow_content = open_editor_for_prompt()
 
         if flow_content is None:
             return False
 
-    # =========================================================
-    # File input
-    # =========================================================
-
     elif file_flag_indexes:
         if len(file_flag_indexes) > 1:
-            print("[!] @sequence: -f/--file specified more than once.")
+            safe_eprint("[!] @sequence: -f/--file specified more than once.")
             return False
 
         file_flag_index = file_flag_indexes[0]
 
         if file_flag_index + 1 >= len(args):
-            print("[!] @sequence: -f/--file requires a filename.")
-            print("[!] Usage: @sequence -f <file>")
+            safe_eprint("[!] @sequence: -f/--file requires a filename.")
+            safe_eprint("[!] Usage: @sequence -f <file>")
             return False
 
         if len(args) != 2:
-            print("[!] Usage: @sequence -f <file>")
+            safe_eprint("[!] Usage: @sequence -f <file>")
             return False
 
         filename = args[file_flag_index + 1]
@@ -555,62 +532,37 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
                 config=config,
             )
 
-            with open(
-                filepath,
-                encoding="utf-8",
-            ) as f:
+            with open(filepath, encoding="utf-8") as f:
                 flow_content = f.read()
 
             logger.info(f"[*] @sequence: Loaded Flow from '{filename}'.")
 
         except Exception as exc:
-            print(f"[!] @sequence: Failed to load sequence file '{filename}': {exc}")
-
+            safe_eprint(
+                f"[!] @sequence: Failed to load sequence file '{filename}': {exc}"
+            )
             logger.error(f"@sequence file load failed for '{filename}': {exc}")
-
             return False
 
-    # =========================================================
-    # No input mode
-    # =========================================================
-
     else:
-        print("[!] Usage:")
-        print("    @sequence -e")
-        print("    @sequence -f <file>")
+        safe_eprint("[!] Usage:")
+        safe_eprint("    @sequence -e")
+        safe_eprint("    @sequence -f <file>")
         return False
-
-    # =========================================================
-    # Parse
-    # =========================================================
 
     try:
         flow_ast = parse_flow(flow_content)
-
     except FlowSyntaxError as exc:
-        print(f"[!] Sequence syntax error: {exc}")
-
+        safe_eprint(f"[!] Sequence syntax error: {exc}")
         logger.error(f"@sequence syntax error: {exc}")
-
         return False
-
-    # =========================================================
-    # Semantic validation
-    # =========================================================
 
     try:
         validate_flow(flow_ast)
-
     except FlowValidationError as exc:
-        print(f"[!] Sequence validation error: {exc}")
-
+        safe_eprint(f"[!] Sequence validation error: {exc}")
         logger.error(f"@sequence validation error: {exc}")
-
         return False
-
-    # =========================================================
-    # Execute
-    # =========================================================
 
     print("[*] Sequence Execution started.")
     print("=" * 50)
@@ -625,14 +577,11 @@ def handle_sequence(parts: list[str], session: "AgentSession") -> bool:
     print("=" * 50)
 
     if not success:
-        print("[!] Sequence Execution failed.")
-
+        safe_eprint("[!] Sequence Execution failed.")
         logger.error("@sequence: Flow execution failed.")
-
         return False
 
     print("[✓] Sequence Execution complete.")
-
     logger.info("[*] @sequence: Flow execution completed successfully.")
 
     return True

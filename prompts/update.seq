@@ -1,0 +1,1 @@
+@gpt -r chat.py -r main.py -r commands.py -r files.py -w review.md -m ":w :o が上書き禁止で実装されてますが、 :W :O で上書き保存したい。コード修正してください"

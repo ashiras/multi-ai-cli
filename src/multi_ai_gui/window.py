@@ -68,6 +68,7 @@ class MainWindow(QMainWindow):
 
         self.process: QProcess | None = None
         self._stdout_buffer = ""
+        self._stderr_buffer = ""
         self._pause_waiting = False
         self._last_output_had_newline = True
         self._last_result_saved_line: str | None = None
@@ -651,6 +652,12 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
+                self.process.readyReadStandardError.disconnect(
+                    self._on_ready_read_stderr
+                )
+            except Exception:
+                pass
+            try:
                 self.process.finished.disconnect(self._on_process_finished)
             except Exception:
                 pass
@@ -666,7 +673,7 @@ class MainWindow(QMainWindow):
         self.process = QProcess(self)
         program, arguments, working_dir = get_multi_ai_repl_command()
         self.process.setWorkingDirectory(working_dir)
-        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
 
         env = QProcessEnvironment.systemEnvironment()
         env.remove("VIRTUAL_ENV")
@@ -674,11 +681,13 @@ class MainWindow(QMainWindow):
         self.process.setProcessEnvironment(env)
 
         self.process.readyReadStandardOutput.connect(self._on_ready_read_stdout)
+        self.process.readyReadStandardError.connect(self._on_ready_read_stderr)
         self.process.finished.connect(self._on_process_finished)
         self.process.errorOccurred.connect(self._on_process_error)
         self.process.started.connect(self._on_process_started)
 
         self._stdout_buffer = ""
+        self._stderr_buffer = ""
         self._pause_waiting = False
         self._last_output_had_newline = True
         self._last_result_saved_line = None
@@ -716,32 +725,49 @@ class MainWindow(QMainWindow):
 
         data = self.process.readAllStandardOutput()
         text = bytes(data.data()).decode("utf-8", errors="replace")
+        self._append_process_output(text, is_stderr=False)
+
+    def _on_ready_read_stderr(self) -> None:
+        if not self.process:
+            return
+
+        data = self.process.readAllStandardError()
+        text = bytes(data.data()).decode("utf-8", errors="replace")
+        self._append_process_output(text, is_stderr=True)
+
+    def _append_process_output(self, text: str, *, is_stderr: bool) -> None:
         text = self._normalize_log_text(text)
+        if not text:
+            return
+
+        buffer = self._stderr_buffer if is_stderr else self._stdout_buffer
 
         if (
             text.startswith("[*]")
             and not self._last_output_had_newline
-            and not self._stdout_buffer.endswith("\n")
+            and not buffer.endswith("\n")
         ):
-            self._stdout_buffer += "\n"
+            buffer += "\n"
 
-        self._stdout_buffer += text
+        buffer += text
         self._last_output_had_newline = text.endswith("\n")
 
-        if PAUSE_PROMPT in self._stdout_buffer:
-            self._stdout_buffer = self._stdout_buffer.replace(PAUSE_PROMPT, "")
+        if PAUSE_PROMPT in buffer:
+            buffer = buffer.replace(PAUSE_PROMPT, "")
             if not self._pause_waiting:
                 self._set_pause_waiting(True)
 
-        if RESULT_SAVED_MARKER in self._stdout_buffer and not self._pause_waiting:
-            self._notify_result_saved(self._stdout_buffer)
+        if RESULT_SAVED_MARKER in buffer and not self._pause_waiting:
+            self._notify_result_saved(buffer)
 
-        while "\n" in self._stdout_buffer:
-            line, self._stdout_buffer = self._stdout_buffer.split("\n", 1)
-            if line.strip():
-                self.log_view.appendPlainText(line)
-            else:
-                self.log_view.appendPlainText("")
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            self.log_view.appendPlainText(line)
+
+        if is_stderr:
+            self._stderr_buffer = buffer
+        else:
+            self._stdout_buffer = buffer
 
         scrollbar = self.log_view.verticalScrollBar()
         if scrollbar:
@@ -785,6 +811,9 @@ class MainWindow(QMainWindow):
         if self._stdout_buffer:
             self.log_view.appendPlainText(self._stdout_buffer.rstrip("\r"))
             self._stdout_buffer = ""
+        if self._stderr_buffer:
+            self.log_view.appendPlainText(self._stderr_buffer.rstrip("\r"))
+            self._stderr_buffer = ""
 
         self._pause_waiting = False
         self.btn_continue.setEnabled(False)
@@ -892,9 +921,53 @@ class MainWindow(QMainWindow):
         self.log_view.appendPlainText("")
         self.process.write((command + "\n").encode("utf-8"))
 
+    def _prepare_repl_command(self, text: str) -> str:
+        """
+        Convert multi-line GUI input into CLI REPL continuation form.
+
+        The CLI REPL accepts multi-line input only when intermediate lines
+        end with a trailing backslash. This method automatically inserts
+        continuation backslashes for multi-line input so users can type
+        naturally in the GUI editor.
+
+        If a non-final line already ends with a backslash, it is preserved
+        as-is and no extra backslash is appended.
+        """
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+
+        if "\n" not in normalized:
+            return normalized.strip()
+
+        lines = normalized.split("\n")
+
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        if not lines:
+            return ""
+
+        prepared: list[str] = []
+        last_index = len(lines) - 1
+
+        for idx, line in enumerate(lines):
+            stripped_line = line.rstrip()
+
+            if idx < last_index:
+                if stripped_line.endswith("\\"):
+                    prepared.append(stripped_line)
+                else:
+                    prepared.append(stripped_line + "\\")
+            else:
+                prepared.append(stripped_line)
+
+        return "\n".join(prepared)
+
     def _on_send(self) -> None:
-        flow_data = self.flow_edit.toPlainText().strip()
-        if not flow_data:
+        raw_text = self.flow_edit.toPlainText()
+        flow_data = self._prepare_repl_command(raw_text)
+        if not flow_data.strip():
             QMessageBox.warning(self, "Empty Input", "FLOW DEFINITION is empty.")
             return
         self._send_command_to_repl(flow_data)

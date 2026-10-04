@@ -8,6 +8,7 @@ from portable_agent_chat.files import (
     ensure_new_file,
     read_file,
     resolve_read_paths,
+    write_file,
     write_new_file,
 )
 
@@ -27,14 +28,7 @@ class ChatSession:
     """Manage a single interactive chat session with one agent."""
 
     def __init__(self, agent_key: str) -> None:
-        """Initialize a chat session for the given agent.
-
-        Args:
-            agent_key: Registered agent name to use.
-
-        Raises:
-            ValueError: If the agent name is unknown.
-        """
+        """Initialize a chat session for the given agent."""
         self.agent_key = agent_key
 
         self.agent_session = create_agent_session()
@@ -46,33 +40,17 @@ class ChatSession:
 
         self.last_response: str | None = None
         self.pending_output: str | None = None
+        self.pending_output_overwrite: bool = False
         self.pending_reads: list[str] = []
 
     def add_pending_read(self, pattern: str) -> list[str]:
-        """Queue one or more files to be included in the next prompt.
-
-        The path may contain glob patterns such as ``*.py`` or ``**/*.py``.
-        Matching files are validated immediately when the command is issued.
-        Files already queued for the next prompt are not added again.
-
-        Args:
-            pattern: File path or glob pattern to include in the next request.
-
-        Returns:
-            The list of newly queued file paths.
-
-        Raises:
-            FileNotFoundError: If no files match the path or pattern.
-            OSError: If a matched file cannot be read.
-        """
+        """Queue one or more files to be included in the next prompt."""
         paths = resolve_read_paths(pattern)
 
         queued: list[str] = []
 
         for path in paths:
             path_str = str(path)
-
-            # Validate readability now rather than waiting until send().
             read_file(path_str)
 
             if path_str in self.pending_reads:
@@ -84,19 +62,7 @@ class ChatSession:
         return queued
 
     def send(self, prompt: str) -> str:
-        """Send a prompt to the current agent and return the response.
-
-        Any queued file reads are embedded into the effective prompt before
-        sending. Queued reads are always cleared after the request attempt.
-        Any queued output path is consumed after the response is generated,
-        even if writing the file fails.
-
-        Args:
-            prompt: User prompt text.
-
-        Returns:
-            The assistant response text.
-        """
+        """Send a prompt to the current agent and return the response."""
         effective_prompt = prompt
 
         if self.pending_reads:
@@ -104,7 +70,6 @@ class ChatSession:
 
             for path in self.pending_reads:
                 content = read_file(path)
-
                 contexts.append(
                     f"--- file: {path} ---\n{content}\n--- end file: {path} ---"
                 )
@@ -114,44 +79,40 @@ class ChatSession:
         try:
             response = self.engine.call(effective_prompt)
         finally:
-            # Clear queued reads even if the model call fails.
             self.pending_reads = []
 
         self.last_response = response
 
         if self.pending_output is not None:
             output_path = self.pending_output
+            overwrite = self.pending_output_overwrite
+
             self.pending_output = None
-            write_new_file(output_path, response)
+            self.pending_output_overwrite = False
+
+            if overwrite:
+                write_file(output_path, response)
+            else:
+                write_new_file(output_path, response)
 
         return response
 
-    def write_last_response(self, path: str) -> int:
-        """Write the most recent assistant response to a new file.
-
-        Args:
-            path: Destination file path.
-
-        Returns:
-            The number of bytes written.
-
-        Raises:
-            ValueError: If no assistant response is available yet.
-            FileExistsError: If the destination file already exists.
-        """
+    def write_last_response(self, path: str, overwrite: bool = False) -> int:
+        """Write the most recent assistant response to a file."""
         if self.last_response is None:
-            raise ValueError("no assistant response to write")
+            raise ValueError(
+                "no assistant response to write; send a prompt first, or use :o / :O to save the next response"
+            )
+
+        if overwrite:
+            return write_file(path, self.last_response)
 
         return write_new_file(path, self.last_response)
 
-    def set_pending_output(self, path: str) -> None:
-        """Reserve a file path for writing the next assistant response.
+    def set_pending_output(self, path: str, overwrite: bool = False) -> None:
+        """Reserve a file path for writing the next assistant response."""
+        if not overwrite:
+            ensure_new_file(path)
 
-        Args:
-            path: Destination file path for the next response.
-
-        Raises:
-            FileExistsError: If the destination path already exists.
-        """
-        ensure_new_file(path)
         self.pending_output = path
+        self.pending_output_overwrite = overwrite
