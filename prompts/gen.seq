@@ -1,0 +1,6 @@
+@sh cp src/tools/gen.py work_data/
+-> @grok -r code.md -r gen.py
+-m "なぜこのファイルが出力されなかったのだろう？
+  Missing from output:
+  problem/hello_world.py
+  problem/age_check.py"

@@ -1,0 +1,12 @@
+@local -r code.md -w code.md
+-m "
+The files were missing because `gen.py` (when run with `--prompt`) only extracts code fences whose **exact paths from the File List** appear as labels immediately before/after the fence or as the first non-empty line inside it.
+
+In `code.md`, the paths (`problem/hello_world.py`, `problem/age_check.py`) are mentioned in headings or Japanese lines like `ファイルのパス:`, but they are **not positioned** in a way the parser (`listed_path_from_line`, `label_from_body`, etc.) recognizes as a valid label for the following ```python fence.
+
+As a result, those two fences were skipped, while the test files happened to be picked up (or not listed in the File List at all).
+
+To fix it, either:
+- Make the path labels match the expected format (e.g., put the exact File List path right before or right after each ```python fence), or
+- Adjust the prompt's File List to match the labels that actually appear in the model output.
+"

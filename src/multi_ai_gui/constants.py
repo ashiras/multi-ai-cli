@@ -13,9 +13,11 @@ import re
 CLI_DIR = os.path.abspath(os.path.join(os.getcwd(), "..", "multi-ai-cli"))
 PROMPTS_DIR = "prompts"
 WORK_DATA_DIR = "work_data"
+INI_FILE = "multi_ai_cli.ini"
 
 PROMPTS_DIR_ABS = os.path.abspath(PROMPTS_DIR)
 WORK_DATA_DIR_ABS = os.path.abspath(WORK_DATA_DIR)
+INI_FILE_ABS = os.path.abspath(INI_FILE)
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 

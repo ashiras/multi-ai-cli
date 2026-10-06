@@ -1,3 +1,130 @@
+以下の変更で、GUI のカレントディレクトリにある `multi_ai_cli.ini` の `[logging]` 設定を読んで、`log_dir/base_filename` のログファイルを `tail -f` 風に `TERMINAL` の下の `LOGGING` ペインへ流す機能を追加できます。
+
+### 変更内容
+- `constants.py`
+  - `multi_ai_cli.ini` のパス定数を追加
+- `utils.py`
+  - `multi_ai_cli.ini` からログ設定を読むヘルパーを追加
+- `window.py`
+  - `LOGGING` ペイン追加
+  - ログファイルの初期末尾読み込み
+  - 1秒ごとの追記監視
+  - truncate / rotation 簡易対応
+
+---
+
+## 1) `src/multi_ai_gui/constants.py`
+
+```python
+"""
+Shared constants and path definitions for the Multi-AI GUI.
+
+This module intentionally preserves the runtime behavior of the original
+single-file prototype in work_data/main.py.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+
+CLI_DIR = os.path.abspath(os.path.join(os.getcwd(), "..", "multi-ai-cli"))
+PROMPTS_DIR = "prompts"
+WORK_DATA_DIR = "work_data"
+INI_FILE = "multi_ai_cli.ini"
+
+PROMPTS_DIR_ABS = os.path.abspath(PROMPTS_DIR)
+WORK_DATA_DIR_ABS = os.path.abspath(WORK_DATA_DIR)
+INI_FILE_ABS = os.path.abspath(INI_FILE)
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+PAUSE_PROMPT = "[*] Press Enter to continue, or type 'q' to abort:"
+RESULT_SAVED_MARKER = "[*] Result saved to '"
+
+
+def ensure_app_directories() -> None:
+    """Create application-managed directories if they do not already exist."""
+    os.makedirs(PROMPTS_DIR, exist_ok=True)
+    os.makedirs(WORK_DATA_DIR, exist_ok=True)
+```
+
+---
+
+## 2) `src/multi_ai_gui/utils.py`
+
+```python
+"""
+Reusable utility helpers for the Multi-AI GUI.
+"""
+
+from __future__ import annotations
+
+import configparser
+import os
+
+from multi_ai_gui.constants import ANSI_ESCAPE_RE, INI_FILE_ABS
+
+
+def get_dir_state(folder: str) -> set[str]:
+    """Return the visible file and directory state under the specified folder."""
+    state: set[str] = set()
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = [dir_name for dir_name in dirs if not dir_name.startswith(".")]
+
+        for dir_name in dirs:
+            state.add(os.path.join(root, dir_name))
+        for file_name in files:
+            if not file_name.startswith("."):
+                state.add(os.path.join(root, file_name))
+    return state
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return ANSI_ESCAPE_RE.sub("", text)
+
+
+def get_logging_file_path() -> str | None:
+    """
+    Read logging target file path from multi_ai_cli.ini in the current working directory.
+
+    Returns:
+        Absolute path to the configured log file, or None when logging is disabled
+        or the configuration is unavailable / incomplete.
+    """
+    if not os.path.exists(INI_FILE_ABS):
+        return None
+
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(INI_FILE_ABS, encoding="utf-8")
+    except (OSError, configparser.Error):
+        return None
+
+    if not parser.has_section("logging"):
+        return None
+
+    enabled = parser.getboolean("logging", "enabled", fallback=False)
+    if not enabled:
+        return None
+
+    log_dir = parser.get("logging", "log_dir", fallback="").strip()
+    base_filename = parser.get("logging", "base_filename", fallback="").strip()
+
+    if not log_dir or not base_filename:
+        return None
+
+    return os.path.abspath(os.path.join(os.getcwd(), log_dir, base_filename))
+```
+
+---
+
+## 3) `src/multi_ai_gui/window.py`
+
+以下は **そのまま差し替え可能な全文** です。
+
+```python
 """
 Main window implementation for the Multi-AI GUI.
 
@@ -918,7 +1045,7 @@ class MainWindow(QMainWindow):
 
     # ---- Logging tail view ----
 
-    def _start_log_timer(self) -> None:
+   def _start_log_timer(self) -> None:
         self._log_timer = QTimer(self)
         self._log_timer.timeout.connect(self._poll_log_file)
         self._log_timer.start(1000)
@@ -1188,3 +1315,34 @@ class MainWindow(QMainWindow):
             cleaned.append(line)
 
         return "\n".join(cleaned)
+```
+
+補足です。今の実装で機能は入りますが、1点だけ気になる点があります。
+
+`QTextCursor` は `PySide6.QtGui` から import していますが、環境によっては未使用警告が出る程度で問題ありません。
+
+あと、より安全にするなら `logging_view` にも行数制限を入れると巨大ログでも軽くなります。たとえば将来的にこういうのを追加できます。
+
+```python
+self.logging_view.setMaximumBlockCount(5000)
+self.log_view.setMaximumBlockCount(5000)
+```
+
+`QPlainTextEdit` ではなく内部 document に対して設定するなら:
+
+```python
+self.logging_view.document().setMaximumBlockCount(5000)
+self.log_view.document().setMaximumBlockCount(5000)
+```
+
+これはかなりおすすめです。
+
+もし次のステップとして必要なら、続けて以下もできます。
+
+- 私がこの変更を **diff形式** で出す
+- `multi_ai_cli.ini` が存在しないときのGUI表示改善
+- `logging.enabled = false` のとき LOGGING ペインに説明を表示
+- ログファイルを GUI 上で手動リロードするボタン追加
+- auto-scroll ON/OFF トグル追加
+
+必要なら次に **git diff 形式** でまとめます。

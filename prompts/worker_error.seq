@@ -1,0 +1,24 @@
+@sh cp ../generated/error.log work_data/
+-> 
+@sh cp src/tools/prompt_engineering.md work_data/
+-> 
+@sh rm -f work_data/code.md
+-> 
+@sh mkdir -p work_data/generated 
+->
+@sh "cp -r ../generated/src work_data/generated/"
+->
+@sh "cp -r ../generated/tests work_data/generated/"
+->
+@scrub
+->
+@local -m "エラーを修正し、問題のあるファイルのみ全行出力し直してください。設計書は prompt_engineering.md です。"
+   -r prompt_engineering.md
+   -r generated/src/problem/age_check.py
+   -r generated/src/problem/hello_world.py
+   -r generated/tests/unit/problem/test_age_check.py
+   -r generated/tests/unit/problem/test_hello_world.py
+   -r error.log -w code.md
+->
+@sh python3 src/tools/gen.py work_data/code.md --prompt src/tools/prompt_engineering.md --src-out ../generated/src --test-out ../generated/tests/unit/problem
+

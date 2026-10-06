@@ -1,0 +1,5 @@
+@sh cp src/tools/prompt_engineering.md work_data/
+->
+@local -r prompt_engineering.md -w code.md
+-> 
+@sh python3 src/tools/gen.py work_data/code.md --prompt src/tools/prompt_engineering.md --src-out ../generated/src --test-out ../generated/tests/unit/problem

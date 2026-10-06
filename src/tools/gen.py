@@ -132,28 +132,37 @@ def parse_file_list(text: str) -> list[str]:
 def listed_path_from_line(line: str, listed: list[str]) -> str | None:
     """Return a File List path when this line names it.
 
-    Longer paths win so src/tests/test_hello.py is not captured by
-    src/hello.py. A bare filename matches only when exactly one listed
-    path has that basename. A File: marker is accepted only when its path
-    is listed.
+    - 完全パス一致を優先
+    - 次に basename（ファイル名のみ）で一致し、**一意**であれば採用
+    - ファイルパスを付けないケースでも対応できるようにする
     """
     text = line.strip()
     if not text or text.startswith("```"):
         return None
+
     marked = file_path_from_line(line)
     if marked is not None and marked in listed:
         return marked
+
     decorated = strip_label_decorations(text).replace("\\", "/")
+
+    # 1. 完全パス一致（長いパスを優先）
     for path in sorted(listed, key=len, reverse=True):
         if re.search(rf"(?<![\w.-]){re.escape(path)}(?![\w.-])", decorated):
             return path
-    basename_hits = []
+
+    # 2. ファイル名（basename）だけでマッチング（一意の場合のみ採用）
+    basename_map = {}
     for path in listed:
         base = path.rsplit("/", 1)[-1]
         if re.search(rf"(?<![\w.-]){re.escape(base)}(?![\w.-])", decorated):
-            basename_hits.append(path)
-    if len(basename_hits) == 1:
-        return basename_hits[0]
+            basename_map.setdefault(base, []).append(path)
+
+    # basename が一意に1つだけヒットした場合のみ返す
+    single_matches = [paths[0] for paths in basename_map.values() if len(paths) == 1]
+    if len(single_matches) == 1:
+        return single_matches[0]
+
     return None
 
 
@@ -188,7 +197,6 @@ def strip_leading_path(
 
 
 def extract_files(text: str, listed: list[str] | None = None) -> list[tuple[str, str]]:
-    """Pair each code fence with a path from File List, or a File: label."""
     lines = text.splitlines()
     files: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -198,29 +206,49 @@ def extract_files(text: str, listed: list[str] | None = None) -> list[tuple[str,
 
     while index < len(lines):
         line = lines[index]
+
         if FENCE_RE.fullmatch(line):
             body: list[str] = []
+            fence_line = index
             index += 1
             while index < len(lines) and not FENCE_RE.fullmatch(lines[index]):
                 body.append(lines[index])
                 index += 1
-            closer = index
-            info_path = fence_info_path(line, listed)
-            path, body = label_from_body(pending or info_path, body, listed)
+
+            # pending が無ければ、直前の非空行をラベルとして確認
+            candidate = pending
+            if candidate is None:
+                # フェンスの直前を逆方向に探す
+                j = fence_line - 1
+                while j >= 0 and not lines[j].strip():
+                    j -= 1
+                if j >= 0:
+                    candidate = (
+                        listed_path_from_line(lines[j], listed)
+                        if listed else file_path_from_line(lines[j])
+                    )
+
+            path, body = label_from_body(candidate, body, listed)
+
             if path is None:
-                path, index = label_after_fence(lines, closer + 1, listed)
+                path, index = label_after_fence(lines, index + 1, listed)
             else:
-                index = closer + 1
+                index += 1
+
             if allow is not None and path not in allow:
                 path = None
+
             if path:
                 body = strip_leading_path(body, path, listed)
+
             if path and path not in seen and any(part.strip() for part in body):
                 seen.add(path)
                 files.append((path, "\n".join(body)))
+
             pending = None
             continue
 
+        # 通常行の処理
         labeled = (
             listed_path_from_line(line, listed) if listed else file_path_from_line(line)
         )
@@ -229,7 +257,6 @@ def extract_files(text: str, listed: list[str] | None = None) -> list[tuple[str,
         index += 1
 
     return files
-
 
 def label_after_fence(
     lines: list[str],
