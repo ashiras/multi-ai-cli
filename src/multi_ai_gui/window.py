@@ -211,7 +211,10 @@ class MainWindow(QMainWindow):
 
         mid_log_layout.addLayout(mid_log_header)
 
-        log_path_text = self._current_log_file or f"Logging disabled or not configured: {INI_FILE_ABS}"
+        log_path_text = (
+            self._current_log_file
+            or f"Logging disabled or not configured: {INI_FILE_ABS}"
+        )
         self.log_file_label = QLabel(log_path_text)
         self.log_file_label.setProperty("pathLabel", "true")
         self.log_file_label.setWordWrap(True)
@@ -948,9 +951,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            with open(
-                self._current_log_file, encoding="utf-8", errors="replace"
-            ) as f:
+            with open(self._current_log_file, encoding="utf-8", errors="replace") as f:
                 content = f.read()
         except OSError:
             return
@@ -990,9 +991,7 @@ class MainWindow(QMainWindow):
             )
 
         try:
-            with open(
-                self._current_log_file, encoding="utf-8", errors="replace"
-            ) as f:
+            with open(self._current_log_file, encoding="utf-8", errors="replace") as f:
                 f.seek(self._log_file_pos)
                 new_text = f.read()
                 self._log_file_pos = f.tell()
