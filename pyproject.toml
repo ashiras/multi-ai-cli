@@ -78,10 +78,12 @@ convention = "pep257"
 
 [dependency-groups]
 dev = [
+    "diff-cover>=10.6.0",
     "freesimplegui>=5.2.0.post1",
     "mypy>=1.19.1",
     "pyinstaller>=6.19.0",
     "pytest>=9.0.2",
+    "pytest-cov>=7.1.0",
     "pytest-mock>=3.15.1",
     "ruff>=0.15.5",
 ]
