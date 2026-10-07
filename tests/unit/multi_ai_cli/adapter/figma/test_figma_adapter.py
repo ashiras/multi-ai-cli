@@ -99,6 +99,19 @@ class TestFigmaAdapterPull:
         assert isinstance(response.data, NormalizedNode)
         assert response.data.node_name == "MyPage"
 
+    def test_pull_normalization_error(self):
+        mock_backend = MagicMock()
+        # Return data that will likely trigger a normalization error if keys are missing
+        mock_backend.pull.return_value = {"invalid": "data"}
+
+        adapter = FigmaAdapter(pull_backend=mock_backend)
+        request = FigmaPullRequest(file_key="abc123")
+
+        # Based on implementation, normalize_file_response or normalize_nodes_response
+        # are called inside. We expect an exception to propagate.
+        with pytest.raises(Exception):
+            adapter.pull(request)
+
 
 class TestFigmaAdapterPush:
     def test_push_no_backend(self):
