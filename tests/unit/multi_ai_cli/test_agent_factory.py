@@ -103,7 +103,7 @@ class TestAgentFactory:
         finally:
             runtime_settings.max_history_turns = original_turns
 
-        assert result.max_turns == 30
+        assert result.max_turns == 5
 
 
 class TestAgentFactoryLegacy:
@@ -193,5 +193,5 @@ class TestAgentFactoryLegacy:
 
         assert isinstance(result, ClaudeEngine)
         assert result.max_tokens == 4096
-        assert result.max_turns == 30
+        assert result.max_turns == 7
         mock_client_class.assert_called_once_with(api_key="key")
