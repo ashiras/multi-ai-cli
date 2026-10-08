@@ -201,6 +201,30 @@ class FlowValidatorTest(unittest.TestCase):
             "duplicate Agent",
         )
 
+    def test_parallel_with_three_branches_having_conflicts_is_rejected(
+        self,
+    ) -> None:
+        self.validate_error(
+            "[ @gpt || @gemini || ( @claude -> @gpt ) ]",
+            "duplicate Agent alias",
+        )
+
+    def test_deeply_nested_parallel_with_conflicts_is_rejected(
+        self,
+    ) -> None:
+        # Test that an agent used in an outer branch conflicts with one inside a nested parallel node.
+        # Outer branch uses @gpt, inner parallel branch uses @gpt.
+        self.validate_error(
+            """
+            [
+              @gpt
+              ||
+              [ @gemini || ( @claude -> @gpt ) ]
+            ]
+            """,
+            "duplicate Agent alias",
+        )
+
     def test_same_agent_twice_inside_one_sequence_branch_is_valid(
         self,
     ) -> None:
