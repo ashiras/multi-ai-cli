@@ -26,10 +26,12 @@ def test_version_format():
 
 def test_version_fallback_on_package_not_found():
     """Test that __version__ defaults to 0.11.0 when PackageNotFoundError occurs."""
-    with patch("multi_ai_cli.version.version", side_effect=PackageNotFoundError):
-        # Reload the module to trigger the try...except block
+    with patch(
+        "importlib.metadata.version",
+        side_effect=PackageNotFoundError,
+    ):
         importlib.reload(multi_ai_cli.version)
-        assert multi_ai_cli.version.__version__ == "0.16.0"
+        assert multi_ai_cli.version.__version__ == "0.11.0"
 
     # Restore original module state
     importlib.reload(multi_ai_cli.version)
