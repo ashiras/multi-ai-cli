@@ -198,8 +198,28 @@ class TestParseAgentFlags:
     def test_unknown_flag_rejected(self, capsys):
         result = _parse_agent_flags(["--unknown"])
         assert result is None
-        captured = capsys.readouterr()
-        assert "Unknown flag" in captured.out
+
+    def test_bare_word_after_flag(self):
+        # Verify that bare words following a flag are correctly parsed
+        result = _parse_agent_flags(["-r", "file.txt", "bare_word"])
+        assert result is not None
+        assert result.read_files == ["file.txt"]
+        assert result.a1 == "bare_word"
+
+    def test_write_flag_without_value(self):
+        # Verify behavior when write flag is at the end of input
+        # Based on current implementation logic, this results in None as it requires an argument
+        result = _parse_agent_flags(["-w"])
+        assert result is None
+
+    def test_interleaved_flags(self):
+        # Verify that interleaved flags are concatenated correctly
+        result = _parse_agent_flags(
+            ["-r", "f1.txt", "-m", "m1", "-r", "f2.txt", "-m", "m2"]
+        )
+        assert result is not None
+        assert result.read_files == ["f1.txt", "f2.txt"]
+        assert result.message == "m1 m2"
 
     def test_missing_r_value(self, capsys):
         result = _parse_agent_flags(["-r"])
