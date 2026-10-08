@@ -199,7 +199,34 @@ class TestGeminiEngine:
         response.candidates[0].finish_reason = MagicMock()
         response.candidates[0].finish_reason.name = "STOP"
 
-        assert engine._hit_output_limit(response, "item,") is True
+        assert engine._hit_output_limit(response, "some text,") is True
+
+    def test_call_auto_continue(self):
+        client = MagicMock()
+
+        # First call: truncated via MAX_TOKENS
+        resp1 = MagicMock()
+        resp1.text = "partial"
+        candidate1 = MagicMock()
+        candidate1.finish_reason.name = "MAX_TOKENS"
+        resp1.candidates = [candidate1]
+
+        # Second call: complete
+        resp2 = MagicMock()
+        resp2.text = " complete"
+        candidate2 = MagicMock()
+        candidate2.finish_reason.name = "STOP"
+        resp2.candidates = [candidate2]
+
+        client.models.generate_content.side_effect = [resp1, resp2]
+
+        engine = GeminiEngine(name="Gemini", model_name="gemini-pro", client=client)
+        engine.filter_mode = True  # Suppress print output
+        result = engine.call("Hello")
+        assert result == "partial complete"
+        assert client.models.generate_content.call_count == 2
+
+        assert engine._hit_output_limit(resp2, "item,") is True
 
     def test_hit_output_limit_normal_stop(self):
         client = MagicMock()
