@@ -197,11 +197,21 @@ class TestResolveApiKeyForAgent:
         self, config_mod, monkeypatch
     ):
         # Ensure section [API_KEYS] is missing
+        config_mod.config.read_dict({"OTHER_SECTION": {"key": "val"}})
         monkeypatch.delenv("MISSING_KEY", raising=False)
 
         ad = self._make_agent_def(api_key_ref="missing_key")
         with pytest.raises(ValueError, match="API key 'missing_key' is missing"):
             config_mod._resolve_api_key_for_agent(ad)
+
+    def test_env_override_when_api_keys_section_missing(self, config_mod, monkeypatch):
+        config_mod.config.read_dict({"OTHER_SECTION": {"key": "val"}})
+        monkeypatch.setenv("MY_KEY", "env_secret")
+
+        ad = self._make_agent_def(api_key_ref="my_key")
+        result = config_mod._resolve_api_key_for_agent(ad)
+
+        assert result == "env_secret"
 
 
 class TestConstants:
