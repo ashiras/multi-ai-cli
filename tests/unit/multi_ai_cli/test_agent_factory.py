@@ -88,26 +88,11 @@ class TestAgentFactory:
     def test_create_applies_runtime_settings(self, mock_resolve):
         from multi_ai_cli.registry import runtime_settings
 
-        import multi_ai_cli.agent_factory as agent_factory_mod
-        import multi_ai_cli.registry as registry_mod
-
+        # The AgentFactory is initialized with default settings. The factory logic
+        # reads from runtime_settings.max_history_turns at time of creation.
         original_turns = runtime_settings.max_history_turns
         runtime_settings.max_history_turns = 5
-        import sys
-        import multi_ai_cli
         try:
-            sys_registry = sys.modules.get("multi_ai_cli.registry")
-            package_registry = getattr(multi_ai_cli, "registry", None)
-
-            print("sys registry module id:    ", id(sys_registry))
-            print("package registry module id:", id(package_registry))
-            print("imported registry module id:", id(registry_mod))
-
-            print("sys runtime id:    ", id(sys_registry.runtime_settings))
-            print("package runtime id:", id(package_registry.runtime_settings))
-            print("local runtime id:  ", id(runtime_settings))
-            print("factory runtime id:", id(agent_factory_mod.runtime_settings))
-
             ad = AgentDefinition(
                 agent_key="test",
                 adapter="openai-compatible",
@@ -115,18 +100,11 @@ class TestAgentFactory:
                 engine="model",
             )
             result = self.factory.create(ad)
-
-            print(
-                "after create:",
-                registry_mod.runtime_settings.max_history_turns,
-                agent_factory_mod.runtime_settings.max_history_turns,
-                "result:",
-                result.max_turns,
-            )
         finally:
             runtime_settings.max_history_turns = original_turns
 
         assert result.max_turns == 5
+
 
 class TestAgentFactoryLegacy:
     def setup_method(self):
