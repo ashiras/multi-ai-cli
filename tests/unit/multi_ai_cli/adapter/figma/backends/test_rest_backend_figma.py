@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from multi_ai_cli.adapters.figma.backends.rest_backend import RestBackend
 from multi_ai_cli.adapters.figma.models import FigmaError, FigmaPullRequest
@@ -112,4 +113,20 @@ class TestRestBackend:
 
         request = FigmaPullRequest(file_key="abc123")
         with pytest.raises(FigmaError, match="status 500"):
+            self.backend.pull(request)
+
+    @patch("multi_ai_cli.adapters.figma.backends.rest_backend.requests.get")
+    def test_pull_connection_error(self, mock_get):
+        mock_get.side_effect = requests.exceptions.ConnectionError("Connection failed")
+        request = FigmaPullRequest(file_key="abc123")
+        with pytest.raises(
+            requests.exceptions.ConnectionError, match="Connection failed"
+        ):
+            self.backend.pull(request)
+
+    @patch("multi_ai_cli.adapters.figma.backends.rest_backend.requests.get")
+    def test_pull_timeout(self, mock_get):
+        mock_get.side_effect = requests.exceptions.Timeout("Request timed out")
+        request = FigmaPullRequest(file_key="abc123")
+        with pytest.raises(requests.exceptions.Timeout, match="Request timed out"):
             self.backend.pull(request)
