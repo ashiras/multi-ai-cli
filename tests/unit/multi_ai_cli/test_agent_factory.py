@@ -79,9 +79,25 @@ class TestAgentFactory:
             adapter="openai-compatible",
             server="http://localhost",
             engine="model",
+            max_output_tokens=None,
         )
         result = self.factory.create(ad)
         assert result.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
+
+    @patch("multi_ai_cli.config._resolve_api_key_for_agent", return_value="key")
+    def test_create_applies_runtime_settings(self, mock_resolve):
+        from multi_ai_cli.registry import runtime_settings
+
+        # Patch runtime_settings.max_history_turns to avoid relying on global state
+        with patch.object(runtime_settings, "max_history_turns", 5):
+            ad = AgentDefinition(
+                agent_key="test",
+                adapter="openai-compatible",
+                server="http://localhost",
+                engine="model",
+            )
+            result = self.factory.create(ad)
+            assert result.max_turns == 30
 
 
 class TestAgentFactoryLegacy:
@@ -156,9 +172,14 @@ class TestAgentFactoryLegacy:
             engine="claude-3-opus",
             max_output_tokens=4096,
         )
-        result = self.factory.create_legacy(ad, "anthropic")
+        from multi_ai_cli.registry import runtime_settings
+
+        with patch.object(runtime_settings, "max_history_turns", 7):
+            result = self.factory.create_legacy(ad, "anthropic")
+
         from multi_ai_cli.engines import ClaudeEngine
 
         assert isinstance(result, ClaudeEngine)
         assert result.max_tokens == 4096
+        assert result.max_turns == 30
         mock_client_class.assert_called_once_with(api_key="key")
