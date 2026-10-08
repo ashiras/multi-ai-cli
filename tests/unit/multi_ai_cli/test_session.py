@@ -192,7 +192,8 @@ class TestAgentSession:
     def test_child_session_inherits_legacy_map(self):
         registry = _make_registry("gpt")
         factory = MagicMock()
-        factory.create_legacy.return_value = MagicMock()
+        engine = MagicMock()
+        factory.create_legacy.return_value = engine
 
         parent = AgentSession(
             registry=registry,
@@ -200,5 +201,17 @@ class TestAgentSession:
             legacy_sdk_map={"gpt": "openai"},
         )
         child = parent.create_child_session()
-        child.get_agent("gpt")
-        factory.create_legacy.assert_called()
+        result = child.get_agent("gpt")
+
+        assert result is engine
+        factory.create_legacy.assert_called_once_with(registry.get("gpt"), "openai")
+
+    def test_scrub_non_existent_agent(self):
+        registry = _make_registry("a")
+        factory = MagicMock()
+        session = AgentSession(registry=registry, factory=factory)
+
+        # Scrubbing an agent that doesn't exist in registry should not raise error
+        # and return empty list
+        scrubbed = session.scrub("non-existent")
+        assert scrubbed == []
