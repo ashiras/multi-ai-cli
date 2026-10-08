@@ -40,6 +40,23 @@ class TestFigmaPullRequest:
         assert req.depth == 3
         assert req.output_format == "raw-json"
 
+    def test_mutually_exclusive_params_allowed(self):
+        # FigmaPullRequest is a dataclass without internal validation.
+        # This test documents that both can be set simultaneously.
+        req = FigmaPullRequest(file_key="abc", node_id="1:2", page="Page 1")
+        assert req.node_id == "1:2"
+        assert req.page == "Page 1"
+
+    def test_missing_required_file_key(self):
+        # Verify that TypeError is raised if file_key is omitted,
+        # confirming basic dataclass constructor enforcement.
+        try:
+            FigmaPullRequest()
+        except TypeError:
+            pass
+        else:
+            assert False, "FigmaPullRequest should require file_key"
+
 
 class TestFigmaPushRequest:
     def test_defaults(self):
