@@ -51,6 +51,18 @@ class TestParseRepo:
         with pytest.raises(ValueError, match="Invalid repository format"):
             _parse_repo("owner/repo name")
 
+    def test_boundary_chars(self):
+        # GitHub allows dots and hyphens, but leading/trailing ones might be restrictive
+        # depending on the regex. The regex is ^[a-zA-Z0-9._-]+$
+        # Test that these specific characters are accepted.
+        owner, name = _parse_repo("-o./r._-")
+        assert owner == "-o." and name == "/r._-".lstrip("/")  # wait, split by /
+        # Re-testing carefully based on current _parse_repo logic
+        # _parse_repo("-o./r._-") -> parts = ["-o.", "r._-"] -> passes regex.
+        owner, name = _parse_repo("-o./r._-")
+        assert owner == "-o."
+        assert name == "r._-"
+
 
 class TestParseGitHubArgs:
     def test_repo_only(self):
@@ -161,6 +173,21 @@ class TestParseGitHubArgs:
     def test_missing_write_value(self):
         with pytest.raises(ValueError, match="requires a filename"):
             _parse_github_args(["@github.repo", "--repo", "o/r", "-w"], "repo")
+
+    def test_unknown_flag(self):
+        # Currently, unknown flags are silently ignored by _parse_github_args
+        parsed = _parse_github_args(
+            ["@github.repo", "--repo", "o/r", "--unknown", "val"], "repo"
+        )
+        assert parsed.repo == "o/r"
+
+    def test_missing_repo_required(self):
+        # The current implementation of _parse_github_args does not explicitly validate
+        # that --repo is present; it simply returns the ParsedGitHubInput object.
+        # This test documents current behavior.
+        parsed = _parse_github_args(["@github.tree", "--path", "src/"], "tree")
+        assert parsed.repo is None
+        assert parsed.path == "src/"
 
 
 class TestFormatRepoInfo:
