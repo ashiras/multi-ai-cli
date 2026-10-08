@@ -57,3 +57,34 @@ def test_main_loop(
     assert "wrote result.txt" in out
     assert "AI answer" in out
     assert "bye" in out
+
+
+@patch("sys.argv", ["portable-chat", "--agent", "mock_agent"])
+@patch("portable_agent_chat.main.startup")
+@patch("portable_agent_chat.main.ChatSession")
+@patch("portable_agent_chat.main.PromptSession")
+@patch("portable_agent_chat.main.parse_command")
+def test_main_error_handling(
+    mock_parse, mock_prompt_session_class, mock_chat_class, mock_startup, capsys
+):
+    mock_chat = MagicMock()
+    mock_chat_class.return_value = mock_chat
+    mock_prompt_session = MagicMock()
+    mock_prompt_session_class.return_value = mock_prompt_session
+
+    # Setup scenarios:
+    # 1. FileExistsError on write_last_response
+    # 2. ValueError on parse_command
+    from portable_agent_chat.commands import Command, CommandType
+
+    mock_cmd = Command(CommandType.WRITE, "test.txt")
+
+    mock_chat.write_last_response.side_effect = FileExistsError("file exists")
+    mock_parse.side_effect = [mock_cmd, ValueError("invalid command")]
+    mock_prompt_session.prompt.side_effect = [":w test.txt", "invalid", EOFError()]
+
+    main()
+
+    out, _ = capsys.readouterr()
+    assert "error: file exists" in out
+    assert "error: invalid command" in out
