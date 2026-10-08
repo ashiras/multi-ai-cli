@@ -57,6 +57,15 @@ class TestFigmaPullRequest:
         else:
             assert False, "FigmaPullRequest should require file_key"
 
+    def test_output_format_defaulting(self):
+        # Verify default for minimal request
+        req = FigmaPullRequest(file_key="abc")
+        assert req.output_format == "normalized-json"
+
+        # Verify custom values are accepted
+        req_custom = FigmaPullRequest(file_key="abc", output_format="raw-json")
+        assert req_custom.output_format == "raw-json"
+
 
 class TestFigmaPushRequest:
     def test_defaults(self):
@@ -123,6 +132,19 @@ class TestNormalizedNode:
         d = root.to_dict()
         assert d["children"][0]["children"][0]["node_id"] == "gc"
 
+    def test_to_dict_custom_types(self):
+        node = NormalizedNode(
+            layout={"width": 10, "height": 20},
+            meta={"styles": {"color": "red"}, "tags": ["button"]},
+            children=[NormalizedNode(node_id="c1")],
+            text=["Click me"],
+        )
+        d = node.to_dict()
+        assert d["layout"] == {"width": 10, "height": 20}
+        assert d["meta"] == {"styles": {"color": "red"}, "tags": ["button"]}
+        assert d["children"][0]["node_id"] == "c1"
+        assert d["text"] == ["Click me"]
+
 
 class TestFigmaPullResponse:
     def test_with_normalized_node(self):
@@ -186,3 +208,15 @@ class TestHandoffPayload:
         assert d["source_file"] == "req.md"
         assert d["target"]["file_key"] == "abc"
         assert d["content"] == "# Hello"
+
+    def test_to_dict_minimal(self):
+        hp = HandoffPayload()
+        d = hp.to_dict()
+        assert d == {
+            "type": "figma_handoff",
+            "version": 1,
+            "input_format": "",
+            "source_file": "",
+            "target": {},
+            "content": "",
+        }
