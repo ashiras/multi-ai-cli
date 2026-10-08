@@ -200,6 +200,25 @@ class TestGitHubAdapterGetFileContent:
         with pytest.raises(ValueError, match="binary"):
             adapter.get_file_content("owner", "repo", "bin")
 
+    def test_base64_with_newlines(self):
+        mock_backend = MagicMock()
+        # Create base64 string with newlines
+        raw = b"hello world this is a test string to ensure base64 decoding works with newlines"
+        encoded = base64.b64encode(raw).decode()
+        formatted_encoded = f"{encoded[:20]}\n{encoded[20:40]}\n{encoded[40:]}"
+        mock_backend.get_contents.return_value = {
+            "type": "file",
+            "encoding": "base64",
+            "content": formatted_encoded,
+            "size": len(raw),
+            "sha": "abc",
+            "name": "test.txt",
+            "path": "test.txt",
+        }
+        adapter = GitHubAdapter(backend=mock_backend)
+        fc = adapter.get_file_content("owner", "repo", "test.txt")
+        assert fc.content == raw.decode()
+
     def test_corrupted_base64_raises(self):
         mock_backend = MagicMock()
         # Invalid base64 characters
