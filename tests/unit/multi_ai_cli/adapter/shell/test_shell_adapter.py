@@ -74,13 +74,17 @@ class TestShellAdapterBuildCommand:
         try:
             parsed = ParsedShInput(run_file="test.sh")
 
+            called = []
+
             def resolve_fn(name):
+                called.append(name)
                 return tmpfile
 
             cmd, use_shell = self.adapter.build_command(
                 parsed, resolve_path_fn=resolve_fn
             )
             assert cmd == ["bash", tmpfile]
+            assert called == ["test.sh"]
         finally:
             os.unlink(tmpfile)
 
@@ -191,6 +195,15 @@ class TestShellAdapterResolveRunner:
     def test_unknown_extension(self):
         assert ShellAdapter._resolve_runner("test.xyz") is None
         assert ShellAdapter._resolve_runner("test") is None
+
+    def test_multiple_dots(self):
+        assert ShellAdapter._resolve_runner("script.test.py") == ["python3"]
+
+    def test_no_extension(self):
+        assert ShellAdapter._resolve_runner("my_script") is None
+
+    def test_hidden_file_no_extension(self):
+        assert ShellAdapter._resolve_runner(".bashrc") is None
 
 
 class TestShellAdapterFormatArtifactText:
