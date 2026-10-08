@@ -189,6 +189,15 @@ class TestParseGitHubArgs:
         assert parsed.repo is None
         assert parsed.path == "src/"
 
+    def test_malformed_write_flag(self):
+        # The current implementation of _parse_github_args does not explicitly handle
+        # unknown write flags; they are treated as unknown flags and ignored.
+        # This test documents that no exception is raised.
+        parsed = _parse_github_args(
+            ["@github.repo", "--repo", "o/r", "-w:invalid", "out.txt"], "repo"
+        )
+        assert parsed.write_file is None
+
 
 class TestFormatRepoInfo:
     def test_basic(self):
