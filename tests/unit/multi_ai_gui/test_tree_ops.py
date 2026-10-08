@@ -64,3 +64,36 @@ def test_current_tree_selection_path(tmp_path, tree_widget):
     tree_widget.setCurrentItem(item)
 
     assert current_tree_selection_path(tree_widget) == str(file_path)
+
+
+def test_populate_tree_selects_correct_path(tmp_path, tree_widget):
+    file_path = tmp_path / "a.txt"
+    file_path.write_text("x")
+
+    populate_tree(tree_widget, str(tmp_path), selected_path=str(file_path))
+
+    assert current_tree_selection_path(tree_widget) == str(file_path)
+
+
+def test_populate_tree_handles_permission_error(tmp_path, tree_widget, monkeypatch):
+    subdir = tmp_path / "sub"
+    subdir.mkdir()
+    (subdir / "accessible.txt").write_text("ok")
+
+    def mock_listdir(path):
+        if "sub" in path:
+            raise PermissionError
+        return ["sub"]
+
+    monkeypatch.setattr("os.listdir", mock_listdir)
+
+    # Should not raise exception
+    populate_tree(tree_widget, str(tmp_path))
+
+    # Tree should still contain the root level item
+    assert tree_widget.topLevelItemCount() > 0
+
+
+def test_find_tree_item_by_path_nonexistent(tmp_path, tree_widget):
+    populate_tree(tree_widget, str(tmp_path))
+    assert find_tree_item_by_path(tree_widget, str(tmp_path / "ghost.txt")) is None
