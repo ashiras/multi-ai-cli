@@ -35,21 +35,21 @@ class TestFigmaArgumentParsing:
                 ["@figma.pull", "--file", "f1", "--node", "1:1", "--page", "my-page"]
             )
 
-    def test_parse_push_args_success(self, tmp_path):
-        # We need an existing file because _parse_push_args reads it via secure_resolve_path
-        # Given the constraint to not modify production code, we rely on the fact
-        # that input_file is just resolved. We'll mock the config-based pathing if needed,
-        # but for unit testing, creating a temporary file is the standard approach.
+    def test_parse_push_args_success(self, monkeypatch, tmp_path):
+        # Use monkeypatch to control secure_resolve_path and the config
+        # This ensures the test is deterministic and does not rely on global state
         d = tmp_path / "data"
         d.mkdir()
         f = d / "test.txt"
         f.write_text("content")
 
-        # Since we can't easily mock secure_resolve_path internal logic without affecting test isolation,
-        # we verify the parsing logic here.
-        # Note: Depending on project config, data dir might be strictly enforced.
-        # We accept that this test might fail if it hits directory constraints,
-        # but it satisfies the requirement to test the logic.
+        def mock_resolve(path, base_dir, config):
+            return d / path
+
+        monkeypatch.setattr(
+            "multi_ai_cli.adapters.figma.facade.secure_resolve_path", mock_resolve
+        )
+
         parts = [
             "@figma.push",
             "-r",
@@ -61,15 +61,13 @@ class TestFigmaArgumentParsing:
             "--write",
             "out.json",
         ]
-        try:
-            request, write_file, content = _parse_push_args(parts)
-            assert request.input_file == "test.txt"
-            assert request.file_key == "f1"
-            assert request.page == "p1"
-            assert write_file == "out.json"
-            assert content == "content"
-        except Exception:
-            pytest.skip("File resolution skipped in restricted environment")
+
+        request, write_file, content = _parse_push_args(parts)
+        assert request.input_file == "test.txt"
+        assert request.file_key == "f1"
+        assert request.page == "p1"
+        assert write_file == "out.json"
+        assert content == "content"
 
     def test_parse_push_args_missing_read(self):
         with pytest.raises(FigmaError, match="-r <file> is required"):
