@@ -141,3 +141,33 @@ def test_chat_session_write_last_response(mock_create_session, tmp_path):
 
     assert size == 9
     assert out_file.read_text() == "test data"
+
+
+@patch("portable_agent_chat.chat.create_agent_session")
+def test_chat_session_write_last_response_overwrite(mock_create_session):
+    mock_session = MagicMock()
+    mock_session.is_valid_agent.return_value = True
+    mock_create_session.return_value = mock_session
+
+    chat = ChatSession("test_agent")
+    chat.last_response = "new data"
+
+    with patch("portable_agent_chat.chat.write_file") as mock_write:
+        chat.write_last_response("out.txt", overwrite=True)
+        mock_write.assert_called_once_with("out.txt", "new data")
+
+
+@patch("portable_agent_chat.chat.create_agent_session")
+def test_chat_session_set_pending_output_overwrite(mock_create_session):
+    mock_session = MagicMock()
+    mock_session.is_valid_agent.return_value = True
+    mock_create_session.return_value = mock_session
+
+    chat = ChatSession("test_agent")
+
+    with patch("portable_agent_chat.chat.ensure_new_file") as mock_ensure:
+        chat.set_pending_output("out.txt", overwrite=True)
+        mock_ensure.assert_not_called()
+
+    assert chat.pending_output == "out.txt"
+    assert chat.pending_output_overwrite is True
