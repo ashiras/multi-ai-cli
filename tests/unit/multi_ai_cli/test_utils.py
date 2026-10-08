@@ -160,3 +160,36 @@ class TestOpenEditorForPrompt:
                 ):
                     result = open_editor_for_prompt()
         assert result is None
+
+    @patch("subprocess.run")
+    @patch("tempfile.mkstemp")
+    def test_open_editor_with_marker_content(self, mock_mkstemp, mock_run):
+        mock_mkstemp.return_value = (1, "/tmp/test.md")
+        mock_run.return_value = MagicMock(returncode=0)
+        content = "Header\n# ==================== END HEADER ====================\n\nMy Prompt Content"
+        with patch("builtins.open", mock_open(read_data=content)):
+            with patch("os.fdopen", mock_open()):
+                with (
+                    patch("os.close"),
+                    patch("os.unlink"),
+                    patch("os.path.exists", return_value=True),
+                ):
+                    result = open_editor_for_prompt()
+        assert result == "My Prompt Content"
+
+    @patch("subprocess.run")
+    @patch("tempfile.mkstemp")
+    def test_open_editor_without_marker_content(self, mock_mkstemp, mock_run):
+        mock_mkstemp.return_value = (1, "/tmp/test.md")
+        mock_run.return_value = MagicMock(returncode=0)
+        # Content without marker: comment lines followed by code/text
+        content = "# Comment line\n\nActual User Prompt\n# Another comment"
+        with patch("builtins.open", mock_open(read_data=content)):
+            with patch("os.fdopen", mock_open()):
+                with (
+                    patch("os.close"),
+                    patch("os.unlink"),
+                    patch("os.path.exists", return_value=True),
+                ):
+                    result = open_editor_for_prompt()
+        assert result == "Actual User Prompt\n# Another comment"
