@@ -101,16 +101,57 @@ class TestFigmaAdapterPull:
 
     def test_pull_normalization_error(self):
         mock_backend = MagicMock()
-        # Return data that will likely trigger a normalization error if keys are missing
+        # Return data that will likely trigger a normalization error
         mock_backend.pull.return_value = {"invalid": "data"}
 
         adapter = FigmaAdapter(pull_backend=mock_backend)
         request = FigmaPullRequest(file_key="abc123")
 
-        # Based on implementation, normalize_file_response or normalize_nodes_response
-        # are called inside. We expect an exception to propagate.
-        with pytest.raises(Exception):
+        with pytest.raises(FigmaError):
             adapter.pull(request)
+
+    def test_pull_calls_normalization_with_expected_args(self):
+        from unittest.mock import patch
+
+        mock_backend = MagicMock()
+        mock_backend.pull.return_value = {
+            "document": {"id": "0:0", "name": "D", "type": "DOCUMENT", "children": []}
+        }
+        adapter = FigmaAdapter(pull_backend=mock_backend)
+
+        # Case 1: File pull
+        with patch(
+            "multi_ai_cli.adapters.figma.adapter.normalize_file_response"
+        ) as mock_norm_file:
+            request = FigmaPullRequest(file_key="abc", page="Cover")
+            adapter.pull(request)
+            mock_norm_file.assert_called_once_with(
+                raw_json=mock_backend.pull.return_value,
+                file_key="abc",
+                page_filter="Cover",
+            )
+
+        # Case 2: Node pull
+        mock_backend.pull.return_value = {
+            "nodes": {
+                "1:1": {
+                    "document": {
+                        "id": "1:1",
+                        "name": "N",
+                        "type": "FRAME",
+                        "children": [],
+                    }
+                }
+            }
+        }
+        with patch(
+            "multi_ai_cli.adapters.figma.adapter.normalize_nodes_response"
+        ) as mock_norm_node:
+            request = FigmaPullRequest(file_key="abc", node_id="1:1")
+            adapter.pull(request)
+            mock_norm_node.assert_called_once_with(
+                raw_json=mock_backend.pull.return_value, file_key="abc"
+            )
 
 
 class TestFigmaAdapterPush:
