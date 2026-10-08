@@ -201,6 +201,19 @@ class FlowValidatorTest(unittest.TestCase):
             "duplicate Agent",
         )
 
+    def test_parallel_with_one_branch_is_rejected(self) -> None:
+        with self.assertRaises(Exception) as cm:
+            parse_flow("[ @gpt ]")
+        self.assertIn(
+            "Parallel block requires at least two branches.", str(cm.exception)
+        )
+
+    def test_command_node_with_no_tokens_is_rejected(self) -> None:
+        self.validate_error(
+            "[ @gpt || @ ]",
+            "Unknown command",
+        )
+
     def test_parallel_with_three_branches_having_conflicts_is_rejected(
         self,
     ) -> None:
