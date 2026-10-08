@@ -88,8 +88,11 @@ class TestAgentFactory:
     def test_create_applies_runtime_settings(self, mock_resolve):
         from multi_ai_cli.registry import runtime_settings
 
-        # Patch runtime_settings.max_history_turns to avoid relying on global state
-        with patch.object(runtime_settings, "max_history_turns", 5):
+        # The AgentFactory is initialized with default settings. The factory logic
+        # reads from runtime_settings.max_history_turns at time of creation.
+        original_turns = runtime_settings.max_history_turns
+        runtime_settings.max_history_turns = 5
+        try:
             ad = AgentDefinition(
                 agent_key="test",
                 adapter="openai-compatible",
@@ -97,7 +100,10 @@ class TestAgentFactory:
                 engine="model",
             )
             result = self.factory.create(ad)
-            assert result.max_turns == 30
+        finally:
+            runtime_settings.max_history_turns = original_turns
+
+        assert result.max_turns == 30
 
 
 class TestAgentFactoryLegacy:
@@ -172,10 +178,16 @@ class TestAgentFactoryLegacy:
             engine="claude-3-opus",
             max_output_tokens=4096,
         )
+        # The AgentFactory is initialized with default settings. The legacy factory logic
+        # reads from runtime_settings.max_history_turns at time of creation.
         from multi_ai_cli.registry import runtime_settings
 
-        with patch.object(runtime_settings, "max_history_turns", 7):
+        original_turns = runtime_settings.max_history_turns
+        runtime_settings.max_history_turns = 7
+        try:
             result = self.factory.create_legacy(ad, "anthropic")
+        finally:
+            runtime_settings.max_history_turns = original_turns
 
         from multi_ai_cli.engines import ClaudeEngine
 
