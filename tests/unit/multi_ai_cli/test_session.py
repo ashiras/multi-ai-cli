@@ -204,14 +204,27 @@ class TestAgentSession:
         result = child.get_agent("gpt")
 
         assert result is engine
-        factory.create_legacy.assert_called_once_with(registry.get("gpt"), "openai")
+        # factory.create_legacy is called for the child session
+        assert factory.create_legacy.call_count == 1
+        factory.create_legacy.assert_called_with(registry.get("gpt"), "openai")
+
+    def test_scrub_on_empty_session(self):
+        registry = _make_registry("a")
+        factory = MagicMock()
+        session = AgentSession(registry=registry, factory=factory)
+
+        # Should return empty list when no agents are loaded
+        scrubbed = session.scrub()
+        assert scrubbed == []
 
     def test_scrub_non_existent_agent(self):
         registry = _make_registry("a")
         factory = MagicMock()
         session = AgentSession(registry=registry, factory=factory)
 
-        # Scrubbing an agent that doesn't exist in registry should not raise error
-        # and return empty list
-        scrubbed = session.scrub("non-existent")
+        # Scrubbing an agent that is registered but not instantiated/loaded
+        # should return an empty list and not raise an error
+        scrubbed = session.scrub("a")
         assert scrubbed == []
+        # and return empty list
+        assert session.scrub("non-existent") == []
