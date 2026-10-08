@@ -199,6 +199,47 @@ def test_join_continues_on_parent_session() -> None:
     ) in calls
 
 
+def test_parallel_stops_on_failure() -> None:
+    ast = parse_flow("[ @gpt || @gemini || @claude ]")
+    session = FakeSession()
+    # Fail the second branch (@gemini)
+    dispatch = RecordingDispatcher(failures={"@gemini"})
+
+    result = execute_flow(
+        ast,
+        session,
+        dispatch=dispatch,
+    )
+
+    assert result is False
+
+
+def test_parallel_partial_execution() -> None:
+    # We need to make sure that other branches (like @gpt and @claude) are actually called
+    # even if @gemini fails. Since it's parallel, order of calls is non-deterministic,
+    # but we can verify the set of calls exists.
+    ast = parse_flow("[ @gpt || @gemini || @claude ]")
+    session = FakeSession()
+    dispatch = RecordingDispatcher(failures={"@gemini"})
+
+    result = execute_flow(
+        ast,
+        session,
+        dispatch=dispatch,
+    )
+
+    assert result is False
+    calls = set(dispatch.calls)
+
+    # Check that all commands were attempted
+    expected_calls = {
+        (("@gpt",), "root.1"),
+        (("@gemini",), "root.2"),
+        (("@claude",), "root.3"),
+    }
+    assert expected_calls.issubset(calls)
+
+
 def test_parallel_fails_if_one_branch_fails() -> None:
     ast = parse_flow("[ @gpt || @fail ]")
 
