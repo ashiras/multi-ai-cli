@@ -94,6 +94,15 @@ class TestGitHubRESTBackend:
         )
 
     @patch.object(GitHubRESTBackend, "_request")
+    def test_get_contents_handles_empty_response(self, mock_req):
+        mock_req.return_value = []
+        result = self.backend.get_contents("owner", "repo", "path")
+        assert result == []
+        mock_req.assert_called_once_with(
+            "GET", "/repos/owner/repo/contents/path", params=None
+        )
+
+    @patch.object(GitHubRESTBackend, "_request")
     def test_get_issue(self, mock_req):
         mock_req.return_value = {"number": 42, "title": "Bug"}
         result = self.backend.get_issue("owner", "repo", 42)
@@ -195,3 +204,21 @@ class TestGitHubRESTBackendRequest:
             self.backend._request("GET", "/test")
         assert exc_info.value.status_code == 500
         assert "Internal Error" in str(exc_info.value)
+
+    def test_request_timeout_bubbles_up(self):
+        import requests
+
+        self.backend._session.request = MagicMock(
+            side_effect=requests.exceptions.Timeout("Request timed out")
+        )
+        with pytest.raises(requests.exceptions.Timeout):
+            self.backend._request("GET", "/test")
+
+    def test_request_connection_error_bubbles_up(self):
+        import requests
+
+        self.backend._session.request = MagicMock(
+            side_effect=requests.exceptions.ConnectionError("Connection failed")
+        )
+        with pytest.raises(requests.exceptions.ConnectionError):
+            self.backend._request("GET", "/test")
