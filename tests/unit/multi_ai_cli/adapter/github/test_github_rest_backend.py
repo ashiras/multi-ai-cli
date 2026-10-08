@@ -86,6 +86,14 @@ class TestGitHubRESTBackend:
         )
 
     @patch.object(GitHubRESTBackend, "_request")
+    def test_get_contents_handles_special_characters(self, mock_req):
+        mock_req.return_value = {"name": "file+with+plus.txt"}
+        self.backend.get_contents("owner", "repo", "file+with+plus.txt", None)
+        mock_req.assert_called_once_with(
+            "GET", "/repos/owner/repo/contents/file+with+plus.txt", params=None
+        )
+
+    @patch.object(GitHubRESTBackend, "_request")
     def test_get_issue(self, mock_req):
         mock_req.return_value = {"number": 42, "title": "Bug"}
         result = self.backend.get_issue("owner", "repo", 42)
@@ -178,3 +186,12 @@ class TestGitHubRESTBackendRequest:
         with pytest.raises(GitHubAPIError) as exc_info:
             self.backend._request("GET", "/test")
         assert exc_info.value.status_code == 502
+
+    def test_error_with_malformed_json_body(self):
+        resp = self._mock_response(500, text="Internal Error")
+        resp.json.side_effect = ValueError("Unexpected non-JSON content")
+        self.backend._session.request = MagicMock(return_value=resp)
+        with pytest.raises(GitHubAPIError) as exc_info:
+            self.backend._request("GET", "/test")
+        assert exc_info.value.status_code == 500
+        assert "Internal Error" in str(exc_info.value)
