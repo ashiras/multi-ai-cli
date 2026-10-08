@@ -1,5 +1,7 @@
 """Tests for multi_ai_cli.adapters.shell.models module."""
 
+import pytest
+
 from multi_ai_cli.adapters.shell.models import ParsedShInput, ShellResult
 
 
@@ -32,6 +34,26 @@ class TestParsedShInput:
 
 
 class TestShellResult:
+    def test_missing_arguments(self):
+        with pytest.raises(TypeError):
+            ShellResult()
+
+    def test_empty_and_zero_values(self):
+        r = ShellResult(
+            exit_code=0,
+            stdout="",
+            stderr="",
+            duration_ms=0.0,
+            command_display="",
+            use_shell=False,
+        )
+        assert r.exit_code == 0
+        assert r.stdout == ""
+        assert r.stderr == ""
+        assert r.duration_ms == 0.0
+        assert r.command_display == ""
+        assert r.use_shell is False
+
     def test_creation(self):
         r = ShellResult(
             exit_code=0,
