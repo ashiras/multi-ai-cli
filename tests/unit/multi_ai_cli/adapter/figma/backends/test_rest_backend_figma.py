@@ -61,6 +61,20 @@ class TestRestBackend:
         assert kwargs["params"]["depth"] == "2"
 
     @patch("multi_ai_cli.adapters.figma.backends.rest_backend.requests.get")
+    def test_pull_node_with_depth(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"nodes": {}}
+        mock_get.return_value = mock_response
+
+        request = FigmaPullRequest(file_key="abc123", node_id="1:2", depth=3)
+        self.backend.pull(request)
+
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["ids"] == "1:2"
+        assert kwargs["params"]["depth"] == "3"
+
+    @patch("multi_ai_cli.adapters.figma.backends.rest_backend.requests.get")
     def test_pull_403(self, mock_get):
         mock_response = MagicMock()
         mock_response.status_code = 403
