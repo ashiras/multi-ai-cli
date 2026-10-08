@@ -1,6 +1,24 @@
 import pytest
 
-from multi_ai_cli.flow_context import FlowExecutionContext
+from multi_ai_cli.flow_context import (
+    FlowExecutionContext,
+    bind_flow_execution_context,
+    get_flow_execution_context,
+)
+
+
+def test_flow_execution_context_context_vars() -> None:
+    # Default context should be root (empty path)
+    ctx = get_flow_execution_context()
+    assert ctx.branch_path == ()
+
+    # Test binding a new context
+    custom_ctx = FlowExecutionContext(branch_path=(1, 5))
+    with bind_flow_execution_context(custom_ctx):
+        assert get_flow_execution_context() == custom_ctx
+
+    # Should revert to default after exiting context
+    assert get_flow_execution_context().branch_path == ()
 
 
 def test_flow_execution_context_path_derivation() -> None:
