@@ -199,6 +199,20 @@ class TestParseAgentFlags:
         result = _parse_agent_flags(["--unknown"])
         assert result is None
 
+    def test_interleaved_flags_and_bare_text(self):
+        # goal: ["hello", "-r", "file.txt", "world"] -> a1="hello world", read_files=["file.txt"]
+        result = _parse_agent_flags(["hello", "-r", "file.txt", "world"])
+        assert result is not None
+        assert result.a1 == "hello world"
+        assert result.read_files == ["file.txt"]
+
+    def test_mixed_multiple_flag_types(self):
+        # goal: -m msg1 -r file1 -m msg2 -> message="msg1 msg2", read_files=["file1"]
+        result = _parse_agent_flags(["-m", "msg1", "-r", "file1", "-m", "msg2"])
+        assert result is not None
+        assert result.message == "msg1 msg2"
+        assert result.read_files == ["file1"]
+
     def test_bare_word_after_flag(self):
         # Verify that bare words following a flag are correctly parsed
         result = _parse_agent_flags(["-r", "file.txt", "bare_word"])
