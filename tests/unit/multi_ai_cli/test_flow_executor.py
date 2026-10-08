@@ -199,6 +199,44 @@ def test_join_continues_on_parent_session() -> None:
     ) in calls
 
 
+def test_parallel_fails_if_one_branch_fails() -> None:
+    ast = parse_flow("[ @gpt || @fail ]")
+
+    session = FakeSession()
+    # @fail is not a command, it will return False if configured in failures
+    dispatch = RecordingDispatcher(failures={"@fail"})
+
+    result = execute_flow(
+        ast,
+        session,
+        dispatch=dispatch,
+    )
+
+    assert result is False
+
+
+def test_sequence_skips_after_parallel_failure() -> None:
+    # Sequence: Parallel node (one fails) -> @final_command
+    ast = parse_flow("[ @gpt || @fail ] -> @final_command")
+
+    session = FakeSession()
+    dispatch = RecordingDispatcher(failures={"@fail"})
+
+    result = execute_flow(
+        ast,
+        session,
+        dispatch=dispatch,
+    )
+
+    assert result is False
+
+    # @final_command should not have been called because the sequence stopped
+    assert (
+        ("@final_command",),
+        "root",
+    ) not in dispatch.calls
+
+
 def test_nested_parallel_creates_nested_child_sessions() -> None:
     ast = parse_flow(
         """
