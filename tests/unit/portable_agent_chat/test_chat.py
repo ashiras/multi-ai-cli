@@ -10,7 +10,6 @@ def test_create_agent_session(mock_agent_session_class):
     session = create_agent_session()
     assert session is not None
     mock_agent_session_class.assert_called_once()
-    mock_agent_session_class.assert_called_once()
 
 
 @patch("portable_agent_chat.chat.create_agent_session")
