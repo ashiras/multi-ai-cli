@@ -200,6 +200,22 @@ class TestGitHubAdapterGetFileContent:
         with pytest.raises(ValueError, match="binary"):
             adapter.get_file_content("owner", "repo", "bin")
 
+    def test_corrupted_base64_raises(self):
+        mock_backend = MagicMock()
+        # Invalid base64 characters
+        mock_backend.get_contents.return_value = {
+            "type": "file",
+            "encoding": "base64",
+            "content": "!!!NotBase64!!!",
+            "size": 10,
+            "sha": "abc",
+            "name": "corrupt.txt",
+            "path": "corrupt.txt",
+        }
+        adapter = GitHubAdapter(backend=mock_backend)
+        with pytest.raises(ValueError, match="Failed to decode Base64"):
+            adapter.get_file_content("owner", "repo", "corrupt.txt")
+
 
 class TestGitHubAdapterGetIssueDetail:
     def test_basic_issue(self):
