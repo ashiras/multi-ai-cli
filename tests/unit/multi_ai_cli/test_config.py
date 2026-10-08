@@ -184,6 +184,25 @@ class TestResolveApiKeyForAgent:
         result = config_mod._resolve_api_key_for_agent(ad)
         assert result == "env_secret"
 
+    def test_raises_value_error_if_key_missing(self, config_mod, monkeypatch):
+        # Ensure INI has no such key and env var is not set
+        config_mod.config.read_dict({"API_KEYS": {"other_key": "val"}})
+        monkeypatch.delenv("MISSING_KEY", raising=False)
+
+        ad = self._make_agent_def(api_key_ref="missing_key")
+        with pytest.raises(ValueError, match="API key 'missing_key' is missing"):
+            config_mod._resolve_api_key_for_agent(ad)
+
+    def test_raises_value_error_if_api_keys_section_missing(
+        self, config_mod, monkeypatch
+    ):
+        # Ensure section [API_KEYS] is missing
+        monkeypatch.delenv("MISSING_KEY", raising=False)
+
+        ad = self._make_agent_def(api_key_ref="missing_key")
+        with pytest.raises(ValueError, match="API key 'missing_key' is missing"):
+            config_mod._resolve_api_key_for_agent(ad)
+
 
 class TestConstants:
     def test_defaults(self, config_mod):
