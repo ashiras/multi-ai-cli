@@ -199,6 +199,18 @@ class TestHandleScrub:
         captured = capsys.readouterr()
         assert "Invalid target" in captured.out
 
+    def test_scrub_not_used_in_session(self, capsys):
+        session = MagicMock()
+        session.agent_keys.return_value = ["gpt"]
+        session.has_agent.return_value = False
+
+        handle_scrub(["@scrub", "gpt"], session)
+        captured = capsys.readouterr()
+        assert (
+            "@gpt has not been used in this session yet. Nothing to scrub."
+            in captured.out
+        )
+
     def test_scrub_not_loaded(self, capsys):
         session = MagicMock()
         session.agent_keys.return_value = ["gpt"]
