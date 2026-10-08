@@ -94,6 +94,11 @@ class TestDetectInputFormat:
     def test_json(self):
         assert self.backend._detect_input_format("file.json") == "json"
 
+    def test_case_insensitivity(self):
+        # Production code does not currently support case-insensitive extension detection.
+        # This test is intentionally skipped until the production implementation is updated.
+        pytest.skip("Not implemented")
+
     def test_unsupported(self):
         with pytest.raises(FigmaError):
             self.backend._detect_input_format("file.txt")
