@@ -163,6 +163,34 @@ class TestAgentRegistry:
         assert not self.registry.has("test")
         assert self.registry.keys() == []
 
+    def test_register_empty_string_fields(self):
+        # Edge case: verify registry accepts agents with empty string fields
+        # as the dataclass does not enforce non-empty constraint on non-keys
+        ad = AgentDefinition(
+            agent_key="test",
+            adapter="",
+            server="",
+            engine="",
+        )
+        self.registry.register(ad)
+        assert self.registry.get("test").adapter == ""
+        assert self.registry.get("test").server == ""
+        assert self.registry.get("test").engine == ""
+
+    def test_register_with_unvalidated_alias(self):
+        # Ensure registry does not implicitly call validate_agent_alias upon registration
+        # unless explicit application logic is expected.
+        invalid_key = "Invalid Name!"
+        ad = AgentDefinition(
+            agent_key=invalid_key,
+            adapter="openai-compatible",
+            server="http://localhost",
+            engine="gpt-4",
+        )
+        # Currently registration is a pure storage mechanism
+        self.registry.register(ad)
+        assert self.registry.has(invalid_key)
+
 
 class TestValidateAgentAlias:
     def test_valid_aliases(self):
