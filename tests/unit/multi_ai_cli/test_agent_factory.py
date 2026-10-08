@@ -128,3 +128,37 @@ class TestAgentFactoryLegacy:
         engine2 = self.factory.create_legacy(ad, "openai")
         assert engine1.get_client() is engine2.get_client()
         assert engine1 is not engine2
+
+    @patch("multi_ai_cli.config._resolve_api_key_for_agent", return_value="key")
+    @patch("google.genai.Client")
+    def test_create_legacy_gemini(self, mock_client, mock_resolve):
+        ad = AgentDefinition(
+            agent_key="gemini",
+            adapter="legacy",
+            server="",
+            engine="gemini-pro",
+            max_output_tokens=2048,
+        )
+        result = self.factory.create_legacy(ad, "gemini")
+        from multi_ai_cli.engines import GeminiEngine
+
+        assert isinstance(result, GeminiEngine)
+        assert result.max_output_tokens == 2048
+        mock_client.assert_called_once_with(api_key="key")
+
+    @patch("multi_ai_cli.config._resolve_api_key_for_agent", return_value="key")
+    @patch("anthropic.Anthropic")
+    def test_create_legacy_anthropic(self, mock_client_class, mock_resolve):
+        ad = AgentDefinition(
+            agent_key="claude",
+            adapter="legacy",
+            server="",
+            engine="claude-3-opus",
+            max_output_tokens=4096,
+        )
+        result = self.factory.create_legacy(ad, "anthropic")
+        from multi_ai_cli.engines import ClaudeEngine
+
+        assert isinstance(result, ClaudeEngine)
+        assert result.max_tokens == 4096
+        mock_client_class.assert_called_once_with(api_key="key")
