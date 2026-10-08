@@ -56,6 +56,9 @@ class TestDispatchCommand:
         assert result is False
         captured = capsys.readouterr()
         assert "Unknown command" in captured.err
+        assert "Available:" in captured.err
+        assert "@gpt" in captured.err
+        assert "@claude" in captured.err
 
     def test_scrub_command(self):
         with patch("multi_ai_cli.handlers.handle_scrub") as mock_scrub:
