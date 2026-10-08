@@ -119,16 +119,28 @@ class TestOpenEditorForPrompt:
     def test_open_editor_success(self, mock_mkstemp, mock_run):
         mock_mkstemp.return_value = (1, "/tmp/test.md")
         mock_run.return_value = MagicMock(returncode=0)
-        content = "# Header\n# ==================== END HEADER ====================\n\nHello World"
-        with patch("builtins.open", mock_open(read_data=content)):
-            with patch("os.fdopen", mock_open()):
+
+        m = mock_open(
+            read_data="# Header\n# ==================== END HEADER ====================\n\nHello World"
+        )
+        # Capture write calls to verify header is written
+        write_handle = m.return_value
+
+        with patch("builtins.open", m):
+            # Mock os.fdopen to return the same mock_open handle for write
+            with patch("os.fdopen", return_value=write_handle):
                 with (
                     patch("os.close"),
                     patch("os.unlink"),
                     patch("os.path.exists", return_value=True),
                 ):
                     result = open_editor_for_prompt()
+
         assert result == "Hello World"
+        # Verify header was written
+        write_handle.write.assert_any_call(
+            "# ====================================================\n# Multi-AI CLI - Editor Mode\n# ====================================================\n# Write your prompt below. Lines starting with '#' are\n# ignored (treated as comments).\n#\n# Save and quit the editor to send your prompt.\n# Leave empty (or only comments) to cancel.\n# ==================== END HEADER ====================\n\n"
+        )
 
     @patch("subprocess.run")
     @patch("tempfile.mkstemp")
