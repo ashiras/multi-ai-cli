@@ -164,6 +164,17 @@ class TestShellAdapterExecuteCommand:
         result = self.adapter.execute_command(["echo", "test"], use_shell=False)
         assert "echo" in result.command_display
 
+    def test_timeout_expired(self):
+        import subprocess
+
+        # Use a command that sleeps longer than the timeout
+        with pytest.raises(subprocess.TimeoutExpired):
+            self.adapter.execute_command(
+                ["python3", "-c", "import time; time.sleep(1)"],
+                use_shell=False,
+                timeout=0.1,
+            )
+
 
 class TestShellAdapterResolveRunner:
     def test_known_extensions(self):
