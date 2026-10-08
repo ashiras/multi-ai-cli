@@ -17,3 +17,16 @@ class FlowAstTest(unittest.TestCase):
         self.assertEqual(len(parallel.branches), 2)
         self.assertIsInstance(parallel.branches[0], SequenceNode)
         self.assertIsInstance(parallel.branches[1], CommandNode)
+
+    def test_empty_sequence(self) -> None:
+        seq = SequenceNode(children=[])
+        self.assertEqual(len(seq.children), 0)
+
+    def test_empty_parallel(self) -> None:
+        parallel = ParallelNode(branches=[])
+        self.assertEqual(len(parallel.branches), 0)
+
+    def test_command_tokens(self) -> None:
+        tokens = ["@gpt", "prompt", "test"]
+        cmd = CommandNode(tokens=tokens)
+        self.assertEqual(cmd.tokens, tokens)
