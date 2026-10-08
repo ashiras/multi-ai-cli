@@ -172,3 +172,33 @@ class TestWorkspaceUtils:
         assert "existing_file" in content
         assert "multi_ai_cli.ini" in content
         assert content.endswith("\n")
+
+    def test_update_gitignore_idempotent(self, monkeypatch, tmp_path):
+        d = tmp_path / "cwd"
+        d.mkdir()
+        target = d / ".gitignore"
+        # Start with the expected content already present
+        initial_content = (
+            "# Multi-AI local/runtime files\nmulti_ai_cli.ini\nwork_data/\nlogs/\n"
+        )
+        target.write_text(initial_content)
+        monkeypatch.chdir(d)
+        monkeypatch.setattr("os.path.exists", lambda p: p == ".gitignore" and True)
+        monkeypatch.setattr("os.path.isfile", lambda p: True)
+
+        _update_gitignore()
+        assert target.read_text() == initial_content
+
+    def test_update_gitignore_no_trailing_newline(self, monkeypatch, tmp_path):
+        d = tmp_path / "cwd"
+        d.mkdir()
+        target = d / ".gitignore"
+        target.write_text("existing_file")
+        monkeypatch.chdir(d)
+        monkeypatch.setattr("os.path.exists", lambda p: p == ".gitignore" and True)
+        monkeypatch.setattr("os.path.isfile", lambda p: True)
+
+        _update_gitignore()
+        content = target.read_text()
+        assert content.endswith("\nlogs/\n")
+        assert "existing_file\n\n# Multi-AI" in content
