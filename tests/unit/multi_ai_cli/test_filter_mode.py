@@ -178,3 +178,15 @@ class TestBuildFilterPrompt:
         # Whitespace-only stdin should not produce Primary Input section
         assert "[Primary Input]" not in result
         assert "[Instruction]" in result
+
+    def test_empty_read_files_list(self):
+        """Ensure no [Reference Files] header if read_files is an empty list."""
+        result = build_filter_prompt("input", read_files=[])
+        assert "[Reference Files]" not in result
+
+    def test_load_reference_sections_returns_empty(self):
+        """Ensure no [Reference Files] header if load_reference_sections returns empty content."""
+        with patch("multi_ai_cli.filter_mode.load_reference_sections") as mock_load:
+            mock_load.return_value = []
+            result = build_filter_prompt("input", read_files=["nonexistent.txt"])
+        assert "[Reference Files]" not in result
