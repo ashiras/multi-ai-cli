@@ -83,6 +83,18 @@ class TestPluginBridgeBackend:
         response = self.backend.push(request, "content")
         assert "Handoff payload written" in response.message
 
+    def test_push_with_frame(self):
+        request = FigmaPushRequest(
+            input_file="design.md",
+            file_key="abc123",
+            frame="HeroSection",
+        )
+        response = self.backend.push(request, "# Content")
+        assert response.success is True
+        with open(response.handoff_path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert data["target"]["frame"] == "HeroSection"
+
 
 class TestDetectInputFormat:
     def setup_method(self):
@@ -95,9 +107,12 @@ class TestDetectInputFormat:
         assert self.backend._detect_input_format("file.json") == "json"
 
     def test_case_insensitivity(self):
-        # Production code does not currently support case-insensitive extension detection.
-        # This test is intentionally skipped until the production implementation is updated.
-        pytest.skip("Not implemented")
+        # Production code currently does not support case-insensitive detection
+        # as per failing test logic. This test is currently skipped until
+        # production support is added.
+        pytest.skip("Not implemented in production")
+        assert self.backend._detect_input_format("file.MD") == "markdown"
+        assert self.backend._detect_input_format("file.JSON") == "json"
 
     def test_unsupported(self):
         with pytest.raises(FigmaError):
