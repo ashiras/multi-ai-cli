@@ -1,24 +1,15 @@
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock external dependencies before importing the module under test.
-for mod in [
-    "multi_ai_cli.config",
-    "multi_ai_cli.agent_factory",
-    "multi_ai_cli.registry",
-    "multi_ai_cli.session",
-]:
-    sys.modules[mod] = MagicMock()
-
-from portable_agent_chat.chat import ChatSession, create_agent_session  # noqa: E402
+from portable_agent_chat.chat import ChatSession, create_agent_session
 
 
 @patch("portable_agent_chat.chat.AgentSession")
 def test_create_agent_session(mock_agent_session_class):
     session = create_agent_session()
     assert session is not None
+    mock_agent_session_class.assert_called_once()
     mock_agent_session_class.assert_called_once()
 
 

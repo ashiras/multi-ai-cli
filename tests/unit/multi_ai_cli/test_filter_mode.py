@@ -74,6 +74,15 @@ class TestParseFilterCliInput:
         assert result is not None
         assert result.message == "first second"
 
+    def test_interleaved_flags(self, capsys):
+        """Verify message concatenation when -m and -r flags are interspersed."""
+        result = parse_filter_cli_input(
+            ["@gpt", "-m", "msg1", "-r", "file1", "-m", "msg2", "-r", "file2"]
+        )
+        assert result is not None
+        assert result.message == "msg1 msg2"
+        assert result.read_files == ["file1", "file2"]
+
     def test_empty_argv(self, capsys):
         result = parse_filter_cli_input([])
         assert result is None
@@ -190,3 +199,25 @@ class TestBuildFilterPrompt:
             mock_load.return_value = []
             result = build_filter_prompt("input", read_files=["nonexistent.txt"])
         assert "[Reference Files]" not in result
+
+    def test_section_ordering(self):
+        """Assert that sections appear in the order: Instruction, Primary Input, Reference Files."""
+        with patch("multi_ai_cli.filter_mode.load_reference_sections") as mock_load:
+            mock_load.return_value = ["ref content"]
+            result = build_filter_prompt(
+                stdin_text="stdin content",
+                message="instruction content",
+                read_files=["ref.txt"],
+            )
+
+        # Verify indexes
+        instr_idx = result.find("[Instruction]")
+        input_idx = result.find("[Primary Input]")
+        ref_idx = result.find("[Reference Files]")
+
+        assert instr_idx != -1
+        assert input_idx != -1
+        assert ref_idx != -1
+
+        assert instr_idx < input_idx
+        assert input_idx < ref_idx
