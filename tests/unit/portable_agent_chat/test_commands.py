@@ -5,7 +5,11 @@ from portable_agent_chat.commands import Command, CommandType, parse_command
 
 def test_parse_command_valid():
     assert parse_command(":w output.md") == Command(CommandType.WRITE, "output.md")
+    assert parse_command(":W output.md") == Command(
+        CommandType.WRITE_FORCE, "output.md"
+    )
     assert parse_command(":o next.md") == Command(CommandType.OUTPUT, "next.md")
+    assert parse_command(":O next.md") == Command(CommandType.OUTPUT_FORCE, "next.md")
     assert parse_command(":r input.py") == Command(CommandType.READ, "input.py")
 
     # 空白が多いケース
@@ -26,3 +30,7 @@ def test_parse_command_missing_path():
 
     with pytest.raises(ValueError, match="path is required"):
         parse_command(":r   ")
+
+
+def test_parse_command_unknown_command():
+    assert parse_command(":z foo") is None
