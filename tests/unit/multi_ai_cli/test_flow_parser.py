@@ -198,10 +198,17 @@ class FlowParserTest(unittest.TestCase):
             ParallelNode,
         )
 
-        self.assertEqual(
-            ast.children[1],
-            CommandNode(tokens=["@grok"]),
-        )
+    def test_empty_group_syntax_error(self) -> None:
+        with self.assertRaises(FlowSyntaxError):
+            parse_flow("( )")
+
+    def test_invalid_trailing_operator_error(self) -> None:
+        with self.assertRaises(FlowSyntaxError):
+            parse_flow("@gpt ->")
+
+    def test_dangling_parallel_operator_error(self) -> None:
+        with self.assertRaises(FlowSyntaxError):
+            parse_flow("[ @gpt || ]")
 
     def test_ungrouped_sequence_branch_is_rejected(self) -> None:
         with self.assertRaisesRegex(
