@@ -3,6 +3,7 @@
 import configparser
 import os
 import tempfile
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
@@ -10,6 +11,7 @@ from multi_ai_cli.utils import (
     _make_continue_prompt,
     _tail_of,
     extract_code_block,
+    open_editor_for_prompt,
     secure_resolve_path,
 )
 
@@ -108,4 +110,52 @@ class TestExtractCodeBlock:
     def test_no_triple_backtick(self):
         text = "plain text"
         result = extract_code_block(text)
-        assert result == "plain text"
+        assert result == text
+
+
+class TestOpenEditorForPrompt:
+    @patch("subprocess.run")
+    @patch("tempfile.mkstemp")
+    def test_open_editor_success(self, mock_mkstemp, mock_run):
+        mock_mkstemp.return_value = (1, "/tmp/test.md")
+        mock_run.return_value = MagicMock(returncode=0)
+        content = "# Header\n# ==================== END HEADER ====================\n\nHello World"
+        with patch("builtins.open", mock_open(read_data=content)):
+            with patch("os.fdopen", mock_open()):
+                with (
+                    patch("os.close"),
+                    patch("os.unlink"),
+                    patch("os.path.exists", return_value=True),
+                ):
+                    result = open_editor_for_prompt()
+        assert result == "Hello World"
+
+    @patch("subprocess.run")
+    @patch("tempfile.mkstemp")
+    def test_open_editor_failure(self, mock_mkstemp, mock_run):
+        mock_mkstemp.return_value = (1, "/tmp/test.md")
+        mock_run.return_value = MagicMock(returncode=1)
+        with patch("os.fdopen", mock_open()):
+            with (
+                patch("os.close"),
+                patch("os.unlink"),
+                patch("os.path.exists", return_value=True),
+            ):
+                result = open_editor_for_prompt()
+        assert result is None
+
+    @patch("subprocess.run")
+    @patch("tempfile.mkstemp")
+    def test_open_editor_empty_prompt(self, mock_mkstemp, mock_run):
+        mock_mkstemp.return_value = (1, "/tmp/test.md")
+        mock_run.return_value = MagicMock(returncode=0)
+        content = "# ==================== END HEADER ====================\n\n\n"
+        with patch("builtins.open", mock_open(read_data=content)):
+            with patch("os.fdopen", mock_open()):
+                with (
+                    patch("os.close"),
+                    patch("os.unlink"),
+                    patch("os.path.exists", return_value=True),
+                ):
+                    result = open_editor_for_prompt()
+        assert result is None
