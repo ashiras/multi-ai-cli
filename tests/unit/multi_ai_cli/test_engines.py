@@ -37,12 +37,12 @@ class TestAIEngineBase:
     def test_trim_history(self):
         client = MagicMock()
         engine = OpenAIEngine(name="Test", model_name="gpt-4", client=client)
-        engine.max_turns = 2
-        # Add 6 messages (3 turns)
-        engine.history = [{"role": "user", "content": f"msg{i}"} for i in range(6)]
+        engine.max_turns = 5
+        # Add 12 messages (6 turns)
+        engine.history = [{"role": "user", "content": f"msg{i}"} for i in range(12)]
         engine._trim_history()
-        # Should keep last 4 messages (2 turns * 2)
-        assert len(engine.history) == 4
+        # Should keep 10 messages (5 turns)
+        assert len(engine.history) == 10
 
     def test_get_client(self):
         client = MagicMock()
@@ -190,7 +190,7 @@ class TestGeminiEngine:
 
         assert engine._hit_output_limit(response, "```python\ncode") is True
 
-    def test_hit_output_limit_trailing_comma(self):
+    def test_hit_output_limit_trailing_chars(self):
         client = MagicMock()
         engine = GeminiEngine(name="Gemini", model_name="gemini-pro", client=client)
 
@@ -198,6 +198,13 @@ class TestGeminiEngine:
         response.candidates = [MagicMock()]
         response.candidates[0].finish_reason = MagicMock()
         response.candidates[0].finish_reason.name = "STOP"
+
+        assert engine._hit_output_limit(response, "some text,") is True
+        assert engine._hit_output_limit(response, "some text:") is True
+        assert engine._hit_output_limit(response, "some text(") is True
+        assert engine._hit_output_limit(response, "some text[") is True
+        assert engine._hit_output_limit(response, "some text{") is True
+        assert engine._hit_output_limit(response, "some text ") is False
 
         assert engine._hit_output_limit(response, "some text,") is True
 
