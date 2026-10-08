@@ -199,3 +199,27 @@ class TestConvertNode:
         assert result.node_name == ""
         assert result.kind == ""
         assert result.meta == {"visible": True}
+
+    def test_nested_text_extraction(self):
+        node = {
+            "id": "1:0",
+            "name": "Parent",
+            "type": "FRAME",
+            "children": [
+                {
+                    "id": "2:0",
+                    "name": "Child Text",
+                    "type": "TEXT",
+                    "characters": "Hello",
+                }
+            ],
+        }
+        result = _convert_node(node, "file123", "")
+        assert len(result.children) == 1
+        assert result.children[0].text == ["Hello"]
+
+    def test_visible_defaults_to_true(self):
+        node = {"id": "1:0", "name": "Frame", "type": "FRAME"}
+        result = _convert_node(node, "file123", "")
+        assert result.meta == {"visible": True}
+        assert result.meta == {"visible": True}
