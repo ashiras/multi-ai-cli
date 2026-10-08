@@ -35,3 +35,16 @@ def test_version_fallback_on_package_not_found():
 
     # Restore original module state
     importlib.reload(multi_ai_cli.version)
+
+
+def test_version_retrieval_success():
+    """Test that __version__ correctly captures the metadata version string."""
+    with patch(
+        "importlib.metadata.version",
+        return_value="1.2.3",
+    ):
+        importlib.reload(multi_ai_cli.version)
+        assert multi_ai_cli.version.__version__ == "1.2.3"
+
+    # Restore original module state
+    importlib.reload(multi_ai_cli.version)
