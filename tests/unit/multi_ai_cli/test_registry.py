@@ -201,8 +201,16 @@ class TestValidateAgentAlias:
         with pytest.raises(ValueError, match="must not be empty"):
             validate_agent_alias("")
 
-    def test_invalid_chars_raises(self):
-        for alias in ["GPT", "my agent", "agent!", "abc.def", "@test"]:
+    def test_invalid_aliases_raise(self):
+        for alias in [
+            "Agent1",
+            "my agent",
+            "agent!",
+            "abc.def",
+            "@test",
+            "UPPER",
+            "Space ",
+        ]:
             with pytest.raises(ValueError, match="Invalid agent name"):
                 validate_agent_alias(alias)
 
