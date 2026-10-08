@@ -195,9 +195,30 @@ class TestHandleScrub:
         session = MagicMock()
         session.agent_keys.return_value = ["gpt"]
 
-        handle_scrub(["@scrub", "nonexistent"], session)
+        # Test invalid target (not in agent_keys and not 'all')
+        handle_scrub(["@scrub", "invalid"], session)
         captured = capsys.readouterr()
-        assert "Invalid target" in captured.out
+        assert "Invalid target 'invalid'" in captured.out
+
+    def test_scrub_not_yet_used(self, capsys):
+        session = MagicMock()
+        session.agent_keys.return_value = ["gpt"]
+        session.has_agent.return_value = False
+
+        handle_scrub(["@scrub", "gpt"], session)
+        captured = capsys.readouterr()
+        assert "@gpt has not been used in this session yet" in captured.out
+
+    def test_scrub_help_on_empty(self, capsys):
+        # Check behavior for empty target provided in a way that falls through
+        # Actually the code handles len(parts) > 1, so empty string is not really possible via command line args
+        # but let's test a case with no target effectively calling 'all'
+        session = MagicMock()
+        session.agent_keys.return_value = []
+        session.scrub.return_value = []
+
+        handle_scrub(["@scrub"], session)
+        session.scrub.assert_called_once_with()
 
     def test_scrub_not_used_in_session(self, capsys):
         session = MagicMock()
