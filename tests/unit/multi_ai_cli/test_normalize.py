@@ -198,7 +198,28 @@ class TestConvertNode:
         assert result.node_id == ""
         assert result.node_name == ""
         assert result.kind == ""
-        assert result.meta == {"visible": True}
+
+    def test_partial_bounding_box(self):
+        node = {"id": "1:0", "absoluteBoundingBox": {"x": 10, "width": 100}}
+        result = _convert_node(node, "f", "p")
+        assert result.layout == {"x": 10, "y": 0, "width": 100, "height": 0}
+
+    def test_visibility_meta(self):
+        # Test default True when field missing
+        node1 = {"id": "1:0"}
+        result1 = _convert_node(node1, "f", "p")
+        assert result1.meta["visible"] is True
+
+        # Test False when explicitly False
+        node2 = {"id": "2:0", "visible": False}
+        result2 = _convert_node(node2, "f", "p")
+        assert result2.meta["visible"] is False
+
+        # Test True when explicitly True
+        node3 = {"id": "3:0", "visible": True}
+        result3 = _convert_node(node3, "f", "p")
+        assert result3.meta["visible"] is True
+        assert result3.meta == {"visible": True}
 
     def test_nested_text_extraction(self):
         node = {
