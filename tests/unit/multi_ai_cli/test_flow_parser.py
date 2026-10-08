@@ -200,11 +200,15 @@ class FlowParserTest(unittest.TestCase):
 
     def test_empty_group_syntax_error(self) -> None:
         with self.assertRaises(FlowSyntaxError):
-            parse_flow("( )")
+            parse_flow("()")
 
     def test_invalid_trailing_operator_error(self) -> None:
         with self.assertRaises(FlowSyntaxError):
             parse_flow("@gpt ->")
+
+    def test_dangling_parallel_branch_error(self) -> None:
+        with self.assertRaises(FlowSyntaxError):
+            parse_flow("[ || @gpt ]")
 
     def test_dangling_parallel_operator_error(self) -> None:
         with self.assertRaises(FlowSyntaxError):
