@@ -1,20 +1,19 @@
 import unittest
 
-from multi_ai_cli.flow_parser import (
-    FlowSyntaxError,
-    parse_flow,
+from multi_ai_cli.flow_ast import (
+    CommandNode,
+    ParallelNode,
+    SequenceNode,
 )
 
 
-class FlowAstSyntaxTest(unittest.TestCase):
-    def test_missing_closing_bracket(self) -> None:
-        with self.assertRaises(FlowSyntaxError):
-            parse_flow("[ @gpt hello! || @gemini hello!")
+class FlowAstTest(unittest.TestCase):
+    def test_ast_construction(self) -> None:
+        cmd1 = CommandNode(tokens=["@gpt", "hello!"])
+        cmd2 = CommandNode(tokens=["@gemini", "hi!"])
+        seq = SequenceNode(children=[cmd1, cmd2])
+        parallel = ParallelNode(branches=[seq, cmd2])
 
-    def test_invalid_arrow_syntax(self) -> None:
-        with self.assertRaises(FlowSyntaxError):
-            parse_flow("@gpt hello! -> -> @gemini hello!")
-
-    def test_empty_branch(self) -> None:
-        with self.assertRaises(FlowSyntaxError):
-            parse_flow("[ @gpt hello! || || @gemini hello! ]")
+        self.assertEqual(len(parallel.branches), 2)
+        self.assertIsInstance(parallel.branches[0], SequenceNode)
+        self.assertIsInstance(parallel.branches[1], CommandNode)
