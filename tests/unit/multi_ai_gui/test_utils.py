@@ -1,4 +1,5 @@
 import configparser
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -82,4 +83,4 @@ def test_get_logging_file_path_success():
     ):
         path = get_logging_file_path()
         assert path is not None
-        assert path.endswith("logs/app.log")
+        assert path.endswith(os.path.join("logs", "app.log"))
