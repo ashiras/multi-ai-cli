@@ -11,11 +11,11 @@ immutable AgentDefinitions from the registry.
 """
 
 import os
-import shlex
 import sys
 from typing import TYPE_CHECKING
 
 from . import __version__
+from .cmdsplit import split_command
 from .config import is_log_enabled, legacy_sdk_map, logger, setup_config, setup_logger
 from .handlers import dispatch_command
 from .registry import agent_registry
@@ -520,7 +520,7 @@ def run_interactive_mode() -> int:
                 break
 
             try:
-                parts = shlex.split(user_input)
+                parts = split_command(user_input)
             except ValueError as e:
                 print(f"[!] Parse error: {e}")
                 continue

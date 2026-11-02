@@ -2,6 +2,7 @@
 
 import configparser
 import os
+import sys
 import tempfile
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -114,6 +115,32 @@ class TestExtractCodeBlock:
 
 
 class TestOpenEditorForPrompt:
+    def test_default_editor_is_platform_specific(self):
+        import multi_ai_cli.utils as utils
+
+        expected = "notepad" if sys.platform == "win32" else "vi"
+        assert utils.DEFAULT_EDITOR == expected
+
+    @pytest.mark.parametrize("env_value", [None, "", "   "])
+    def test_default_editor_used_when_editor_unset(self, monkeypatch, env_value):
+        import multi_ai_cli.utils as utils
+
+        if env_value is None:
+            monkeypatch.delenv("EDITOR", raising=False)
+        else:
+            monkeypatch.setenv("EDITOR", env_value)
+
+        captured = {}
+
+        def fake_run(cmd, check=False):
+            captured["cmd"] = cmd
+            return MagicMock(returncode=1)
+
+        monkeypatch.setattr(utils.subprocess, "run", fake_run)
+
+        assert utils.open_editor_for_prompt() is None
+        assert captured["cmd"][0] == utils.DEFAULT_EDITOR
+
     def test_open_editor_success(self, monkeypatch):
         import multi_ai_cli.utils as utils
 

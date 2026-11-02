@@ -1215,7 +1215,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "charset-normalizer" },
-    { name = "gnureadline" },
+    { name = "gnureadline", marker = "sys_platform != 'win32'" },
     { name = "google-genai" },
     { name = "openai" },
     { name = "prompt-toolkit" },
@@ -1247,7 +1247,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.84.0" },
     { name = "charset-normalizer", specifier = ">=3.4.5" },
     { name = "freesimplegui", marker = "extra == 'gui'" },
-    { name = "gnureadline", specifier = ">=8.3.3" },
+    { name = "gnureadline", marker = "sys_platform != 'win32'", specifier = ">=8.3.3" },
     { name = "google-genai", specifier = ">=1.66.0" },
     { name = "openai", specifier = ">=2.26.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.53" },

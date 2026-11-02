@@ -58,6 +58,36 @@ This is a sophisticated AI collaboration environment for developers, designed as
     multi-ai --version
     ```
 
+### 🪟 Installation (Windows)
+
+On Windows, run Multi-AI CLI from source (the tested path):
+
+1.  Install [Python](https://www.python.org/downloads/windows/) **3.12 or later** (the code uses syntax introduced in 3.12) and [uv](https://github.com/astral-sh/uv).
+2.  Clone the repository and sync dependencies:
+    ```powershell
+    git clone https://github.com/ashiras/multi-ai-cli.git
+    cd multi-ai-cli
+    uv sync
+    ```
+3.  Set your API keys for the current PowerShell session (or use `multi_ai_cli.ini`):
+    ```powershell
+    $env:OPENAI_API_KEY = "..."
+    $env:ANTHROPIC_API_KEY = "..."
+    ```
+4.  Verify:
+    ```powershell
+    uv run multi-ai --version
+    ```
+
+Notes for Windows:
+
+-   **Quote the agent name in Filter mode.** In PowerShell a bare `@gpt` is the splatting operator and never reaches the program: `"apple" | uv run multi-ai '@gpt' -m "Translate this to Japanese only."` (the Interactive REPL is not affected).
+-   **Paths** given to `-r`, `-w` and `@sh` may use `/` or `\`. In the REPL a backslash still escapes a quote, a backslash or a space.
+-   **Editor mode** (`-e`) uses `$EDITOR` and falls back to `notepad`. To use another editor, e.g. VS Code: `$env:EDITOR = 'code --wait'`.
+-   **`@sh`**: `-r script.py` runs with the Python interpreter that runs Multi-AI CLI, `--shell` goes through `cmd.exe`, and `.sh` scripts need a `bash` on your `PATH` (e.g. Git Bash).
+-   **No readline**: persistent command history and Tab completion are not available on Windows.
+-   **Anaconda / Miniconda Python**: the GUI (PySide6) can fail with `DLL load failed` because conda's own `Library\bin\icuuc.dll` is found instead of the system one. Point uv at a python.org interpreter instead: `uv sync --python C:\path\to\python.exe`.
+
 ### 🛠 For Developers (Source Installation)
 If you prefer to run from source or want to contribute to the project, use [uv](https://github.com/astral-sh/uv) for a seamless setup:
 

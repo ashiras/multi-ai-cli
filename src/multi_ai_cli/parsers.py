@@ -6,11 +6,11 @@ and @sequence step parsing.
 """
 
 import re
-import shlex
 from configparser import ConfigParser
 from dataclasses import dataclass, field
 
 from .adapters.shell.models import ParsedShInput  # noqa: F401 — re-export
+from .cmdsplit import split_command
 from .config import config
 from .utils import secure_resolve_path
 
@@ -600,7 +600,7 @@ def parse_sequence_steps(editor_content: str) -> list[list[list[str]]] | None:
                     return None
 
                 try:
-                    tokens = shlex.split(seg_normalized)
+                    tokens = split_command(seg_normalized)
                 except ValueError as e:
                     print(
                         f"[!] Step {global_step_idx}, parallel task {seg_idx}: Parse error: {e}"
@@ -632,7 +632,7 @@ def parse_sequence_steps(editor_content: str) -> list[list[list[str]]] | None:
 
         else:
             try:
-                tokens = shlex.split(normalized)
+                tokens = split_command(normalized)
             except ValueError as e:
                 print(f"[!] Step {global_step_idx}: Parse error: {e}")
                 return None

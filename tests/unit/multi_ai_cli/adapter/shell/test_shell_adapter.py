@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import tempfile
 
 import pytest
@@ -10,13 +11,16 @@ from multi_ai_cli.adapters.shell.adapter import (
     RUNNER_MAP,
     ShellAdapter,
     ShellCommandBuildError,
+    _decode_output,
 )
 from multi_ai_cli.adapters.shell.models import ParsedShInput, ShellResult
+
+PYTHON_RUNNER = [sys.executable] if sys.platform == "win32" else ["python3"]
 
 
 class TestRunnerMap:
     def test_python(self):
-        assert RUNNER_MAP[".py"] == ["python3"]
+        assert RUNNER_MAP[".py"] == PYTHON_RUNNER
 
     def test_shell(self):
         assert RUNNER_MAP[".sh"] == ["bash"]
@@ -61,7 +65,7 @@ class TestShellAdapterBuildCommand:
         try:
             parsed = ParsedShInput(run_file=tmpfile)
             cmd, use_shell = self.adapter.build_command(parsed)
-            assert cmd == ["python3", tmpfile]
+            assert cmd == PYTHON_RUNNER + [tmpfile]
             assert use_shell is False
         finally:
             os.unlink(tmpfile)
@@ -136,7 +140,9 @@ class TestShellAdapterExecuteCommand:
         self.adapter = ShellAdapter()
 
     def test_simple_echo(self):
-        result = self.adapter.execute_command(["echo", "hello"], use_shell=False)
+        result = self.adapter.execute_command(
+            [sys.executable, "-c", "print('hello')"], use_shell=False
+        )
         assert isinstance(result, ShellResult)
         assert result.exit_code == 0
         assert "hello" in result.stdout
@@ -148,12 +154,14 @@ class TestShellAdapterExecuteCommand:
         assert "hello" in result.stdout
 
     def test_nonzero_exit(self):
-        result = self.adapter.execute_command(["false"], use_shell=False)
+        result = self.adapter.execute_command(
+            [sys.executable, "-c", "raise SystemExit(1)"], use_shell=False
+        )
         assert result.exit_code != 0
 
     def test_stderr_capture(self):
         result = self.adapter.execute_command(
-            ["python3", "-c", "import sys; sys.stderr.write('err\\n')"],
+            [sys.executable, "-c", "import sys; sys.stderr.write('err\\n')"],
             use_shell=False,
         )
         assert "err" in result.stderr
@@ -165,8 +173,10 @@ class TestShellAdapterExecuteCommand:
             )
 
     def test_command_display(self):
-        result = self.adapter.execute_command(["echo", "test"], use_shell=False)
-        assert "echo" in result.command_display
+        result = self.adapter.execute_command(
+            [sys.executable, "-c", "print('test')"], use_shell=False
+        )
+        assert "print" in result.command_display
 
     def test_timeout_expired(self):
         import subprocess
@@ -174,15 +184,64 @@ class TestShellAdapterExecuteCommand:
         # Use a command that sleeps longer than the timeout
         with pytest.raises(subprocess.TimeoutExpired):
             self.adapter.execute_command(
-                ["python3", "-c", "import time; time.sleep(1)"],
+                [sys.executable, "-c", "import time; time.sleep(1)"],
                 use_shell=False,
                 timeout=0.1,
             )
 
 
+class TestDecodeOutput:
+    @pytest.fixture
+    def gbk_locale(self, monkeypatch):
+        monkeypatch.setattr(
+            "multi_ai_cli.adapters.shell.adapter.locale.getpreferredencoding",
+            lambda do_setlocale=True: "gbk",
+        )
+
+    def test_none_and_empty(self):
+        assert _decode_output(None) == ""
+        assert _decode_output(b"") == ""
+
+    def test_ascii(self):
+        assert _decode_output(b"hello") == "hello"
+
+    def test_utf8(self, gbk_locale):
+        assert _decode_output("中文".encode()) == "中文"
+
+    def test_locale_encoding_fallback(self, gbk_locale):
+        assert _decode_output("中文".encode("gbk")) == "中文"
+
+    def test_undecodable_bytes_are_replaced(self, gbk_locale):
+        assert "�" in _decode_output(b"\xff\xfe\xff\xb7")
+
+    def test_unknown_locale_encoding_does_not_raise(self, monkeypatch):
+        monkeypatch.setattr(
+            "multi_ai_cli.adapters.shell.adapter.locale.getpreferredencoding",
+            lambda do_setlocale=True: "no-such-codec",
+        )
+        assert "�" in _decode_output(b"\xff\xfe")
+
+    def test_line_endings_are_normalized(self):
+        assert _decode_output(b"a\r\nb\rc\n") == "a\nb\nc\n"
+
+    def test_execute_command_decodes_utf8_output(self, gbk_locale):
+        code = "import sys; sys.stdout.buffer.write('中文'.encode('utf-8'))"
+        result = ShellAdapter().execute_command(
+            [sys.executable, "-c", code], use_shell=False
+        )
+        assert result.stdout == "中文"
+
+    def test_execute_command_decodes_locale_output(self, gbk_locale):
+        code = "import sys; sys.stdout.buffer.write('中文'.encode('gbk'))"
+        result = ShellAdapter().execute_command(
+            [sys.executable, "-c", code], use_shell=False
+        )
+        assert result.stdout == "中文"
+
+
 class TestShellAdapterResolveRunner:
     def test_known_extensions(self):
-        assert ShellAdapter._resolve_runner("test.py") == ["python3"]
+        assert ShellAdapter._resolve_runner("test.py") == PYTHON_RUNNER
         assert ShellAdapter._resolve_runner("test.sh") == ["bash"]
         assert ShellAdapter._resolve_runner("test.rb") == ["ruby"]
         assert ShellAdapter._resolve_runner("test.js") == ["node"]
@@ -197,7 +256,7 @@ class TestShellAdapterResolveRunner:
         assert ShellAdapter._resolve_runner("test") is None
 
     def test_multiple_dots(self):
-        assert ShellAdapter._resolve_runner("script.test.py") == ["python3"]
+        assert ShellAdapter._resolve_runner("script.test.py") == PYTHON_RUNNER
 
     def test_no_extension(self):
         assert ShellAdapter._resolve_runner("my_script") is None
