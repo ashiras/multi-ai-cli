@@ -11,6 +11,7 @@ from multi_ai_cli.adapters.shell.adapter import (
     RUNNER_MAP,
     ShellAdapter,
     ShellCommandBuildError,
+    _decode_output,
 )
 from multi_ai_cli.adapters.shell.models import ParsedShInput, ShellResult
 
@@ -187,6 +188,55 @@ class TestShellAdapterExecuteCommand:
                 use_shell=False,
                 timeout=0.1,
             )
+
+
+class TestDecodeOutput:
+    @pytest.fixture
+    def gbk_locale(self, monkeypatch):
+        monkeypatch.setattr(
+            "multi_ai_cli.adapters.shell.adapter.locale.getpreferredencoding",
+            lambda do_setlocale=True: "gbk",
+        )
+
+    def test_none_and_empty(self):
+        assert _decode_output(None) == ""
+        assert _decode_output(b"") == ""
+
+    def test_ascii(self):
+        assert _decode_output(b"hello") == "hello"
+
+    def test_utf8(self, gbk_locale):
+        assert _decode_output("中文".encode()) == "中文"
+
+    def test_locale_encoding_fallback(self, gbk_locale):
+        assert _decode_output("中文".encode("gbk")) == "中文"
+
+    def test_undecodable_bytes_are_replaced(self, gbk_locale):
+        assert "�" in _decode_output(b"\xff\xfe\xff\xb7")
+
+    def test_unknown_locale_encoding_does_not_raise(self, monkeypatch):
+        monkeypatch.setattr(
+            "multi_ai_cli.adapters.shell.adapter.locale.getpreferredencoding",
+            lambda do_setlocale=True: "no-such-codec",
+        )
+        assert "�" in _decode_output(b"\xff\xfe")
+
+    def test_line_endings_are_normalized(self):
+        assert _decode_output(b"a\r\nb\rc\n") == "a\nb\nc\n"
+
+    def test_execute_command_decodes_utf8_output(self, gbk_locale):
+        code = "import sys; sys.stdout.buffer.write('中文'.encode('utf-8'))"
+        result = ShellAdapter().execute_command(
+            [sys.executable, "-c", code], use_shell=False
+        )
+        assert result.stdout == "中文"
+
+    def test_execute_command_decodes_locale_output(self, gbk_locale):
+        code = "import sys; sys.stdout.buffer.write('中文'.encode('gbk'))"
+        result = ShellAdapter().execute_command(
+            [sys.executable, "-c", code], use_shell=False
+        )
+        assert result.stdout == "中文"
 
 
 class TestShellAdapterResolveRunner:

@@ -11,6 +11,7 @@ Design principles:
 """
 
 import json
+import locale
 import os
 import shlex
 import subprocess
@@ -36,6 +37,38 @@ RUNNER_MAP: dict[str, list[str]] = {
     ".r": ["Rscript"],
     ".R": ["Rscript"],
 }
+
+
+def _decode_output(data: bytes | None) -> str:
+    """
+    Decode captured process output without raising or losing text.
+
+    The encoding of a child process depends on the console code page, which
+    may differ from the locale (e.g. UTF-8 console on a GBK Windows). UTF-8
+    is tried first, then the locale encoding, then UTF-8 with replacement.
+    Line endings are normalized like ``subprocess`` text mode does.
+
+    Args:
+        data: Raw bytes captured from stdout or stderr.
+
+    Returns:
+        Decoded text with LF line endings.
+    """
+    if not data:
+        return ""
+
+    text: str | None = None
+    for encoding in ("utf-8", locale.getpreferredencoding(False)):
+        try:
+            text = data.decode(encoding)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    if text is None:
+        text = data.decode("utf-8", errors="replace")
+
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 class ShellCommandBuildError(Exception):
@@ -166,7 +199,6 @@ class ShellAdapter:
             shell=use_shell,
             env=os.environ.copy(),
             capture_output=True,
-            text=True,
             timeout=timeout,
         )
 
@@ -175,8 +207,8 @@ class ShellAdapter:
 
         return ShellResult(
             exit_code=result.returncode,
-            stdout=result.stdout or "",
-            stderr=result.stderr or "",
+            stdout=_decode_output(result.stdout),
+            stderr=_decode_output(result.stderr),
             duration_ms=duration_ms,
             command_display=cmd_display,
             use_shell=use_shell,
