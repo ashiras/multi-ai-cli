@@ -43,8 +43,7 @@ is intentionally handled in a later validation phase.
 
 from __future__ import annotations
 
-import shlex
-
+from .cmdsplit import split_command
 from .flow_ast import (
     CommandNode,
     FlowNode,
@@ -327,7 +326,7 @@ class FlowParser:
             )
 
         try:
-            tokens = shlex.split(raw_command)
+            tokens = split_command(raw_command)
         except ValueError as exc:
             raise FlowSyntaxError(
                 f"Command parse error: {exc}",

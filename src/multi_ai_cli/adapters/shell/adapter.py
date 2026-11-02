@@ -14,14 +14,19 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
 
+from ...cmdsplit import split_command
 from .models import ParsedShInput, ShellResult
 
+# Windows has no ``python3`` command; use the interpreter running this process.
+_PYTHON_RUNNER: list[str] = [sys.executable] if sys.platform == "win32" else ["python3"]
+
 RUNNER_MAP: dict[str, list[str]] = {
-    ".py": ["python3"],
+    ".py": _PYTHON_RUNNER,
     ".sh": ["bash"],
     ".rb": ["ruby"],
     ".js": ["node"],
@@ -121,7 +126,7 @@ class ShellAdapter:
             raise ShellCommandBuildError("No command provided.")
 
         try:
-            cmd = shlex.split(parsed.command)
+            cmd = split_command(parsed.command)
         except ValueError as e:
             raise ShellCommandBuildError(f"Command parse error: {e}") from e
 

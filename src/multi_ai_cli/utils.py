@@ -8,7 +8,6 @@ helpers, etc.
 import configparser
 import logging
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -17,6 +16,7 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 from . import __version__
+from .cmdsplit import split_command
 
 if TYPE_CHECKING:
     from .engines import AIEngine
@@ -98,7 +98,7 @@ def open_editor_for_prompt(
         logger = logging.getLogger("MultiAI")
 
     editor_raw = os.environ.get("EDITOR", "vi").strip() or "vi"
-    editor_cmd = shlex.split(editor_raw)
+    editor_cmd = split_command(editor_raw)
 
     header = (
         "# ====================================================\n"
