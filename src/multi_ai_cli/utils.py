@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
 MARKER = "# ==================== END HEADER ===================="
 
+# Editor used when $EDITOR is not set; Windows has no ``vi``.
+DEFAULT_EDITOR = "notepad" if sys.platform == "win32" else "vi"
+
 _console_lock = threading.Lock()
 
 
@@ -83,7 +86,8 @@ def open_editor_for_prompt(
     """
     Opens the user's preferred editor with a temporary file.
 
-    Uses the ``$EDITOR`` environment variable or falls back to ``vi``.
+    Uses the ``$EDITOR`` environment variable or falls back to
+    ``DEFAULT_EDITOR`` (``vi``, or ``notepad`` on Windows).
     Returns the content written by the user (after stripping comments),
     or ``None`` if cancelled/empty.
 
@@ -97,7 +101,7 @@ def open_editor_for_prompt(
     if logger is None:
         logger = logging.getLogger("MultiAI")
 
-    editor_raw = os.environ.get("EDITOR", "vi").strip() or "vi"
+    editor_raw = os.environ.get("EDITOR", DEFAULT_EDITOR).strip() or DEFAULT_EDITOR
     editor_cmd = split_command(editor_raw)
 
     header = (
@@ -246,7 +250,7 @@ def print_welcome_banner(
     print(
         "[*] Commands: @<agent>, @pause, @efficient, @scrub, @sequence, @sh, @github.*, exit"
     )
-    print("[*] Editor:   @<agent> -e | --edit  (uses $EDITOR or vi)")
+    print(f"[*] Editor:   @<agent> -e | --edit  (uses $EDITOR or {DEFAULT_EDITOR})")
     print("[*] Sequence: @sequence -e  (multi-step pipeline via editor)")
     print("[*]           Use '->' to chain steps in editor mode")
     print("[*]           Use '[ cmd1 || cmd2 ]' for parallel execution")
